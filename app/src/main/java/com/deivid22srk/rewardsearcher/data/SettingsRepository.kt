@@ -28,6 +28,7 @@ class SettingsRepository(private val context: Context) {
         val KEY_AI_MODEL = stringPreferencesKey("ai_model")
         val KEY_AI_KEY = stringPreferencesKey("ai_key")
         val KEY_SHOW_AI_PREVIEWS = booleanPreferencesKey("show_ai_previews")
+        val KEY_USE_LOCAL_AI = booleanPreferencesKey("use_local_ai")
     }
 
     val searchCount: Flow<Int> = context.dataStore.data.map { it[KEY_SEARCH_COUNT] ?: 30 }
@@ -41,6 +42,7 @@ class SettingsRepository(private val context: Context) {
     val aiModel: Flow<String> = context.dataStore.data.map { it[KEY_AI_MODEL] ?: "" }
     val aiKey: Flow<String> = context.dataStore.data.map { it[KEY_AI_KEY] ?: "" }
     val showAIPreviews: Flow<Boolean> = context.dataStore.data.map { it[KEY_SHOW_AI_PREVIEWS] ?: false }
+    val useLocalAI: Flow<Boolean> = context.dataStore.data.map { it[KEY_USE_LOCAL_AI] ?: false }
 
     suspend fun setSearchCount(value: Int) {
         context.dataStore.edit { it[KEY_SEARCH_COUNT] = value }
@@ -84,5 +86,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setShowAIPreviews(value: Boolean) {
         context.dataStore.edit { it[KEY_SHOW_AI_PREVIEWS] = value }
+    }
+
+    suspend fun setUseLocalAI(value: Boolean) {
+        context.dataStore.edit { it[KEY_USE_LOCAL_AI] = value }
     }
 }

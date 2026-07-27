@@ -49,6 +49,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.deivid22srk.rewardsearcher.MainActivity
 import com.deivid22srk.rewardsearcher.data.AISearchGenerator
+import com.deivid22srk.rewardsearcher.data.LocalAIManager
 import com.deivid22srk.rewardsearcher.data.SearchTerms
 import com.deivid22srk.rewardsearcher.ui.theme.RewardSearcherTheme
 import kotlinx.coroutines.CoroutineScope
@@ -70,6 +71,8 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
         const val EXTRA_AI_URL = "ai_url"
         const val EXTRA_AI_MODEL = "ai_model"
         const val EXTRA_AI_KEY = "ai_key"
+        const val EXTRA_USE_LOCAL_AI = "use_local_ai"
+        const val EXTRA_PREGENERATED_TERMS = "pregenerated_terms"
         const val CHANNEL_ID = "search_overlay_channel"
         const val NOTIFICATION_ID = 1001
     }
@@ -113,6 +116,8 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
         val aiUrl = intent?.getStringExtra(EXTRA_AI_URL) ?: ""
         val aiModel = intent?.getStringExtra(EXTRA_AI_MODEL) ?: ""
         val aiKey = intent?.getStringExtra(EXTRA_AI_KEY) ?: ""
+        val useLocalAI = intent?.getBooleanExtra(EXTRA_USE_LOCAL_AI, false) ?: false
+        val pregeneratedTerms = intent?.getStringArrayExtra(EXTRA_PREGENERATED_TERMS)
 
         totalCount = count
         currentIndex = 0
@@ -121,22 +126,32 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
 
         startForeground(NOTIFICATION_ID, createNotification())
         showOverlay()
-        startSearches(count, delayMs, browser, prefix, useAI, aiUrl, aiModel, aiKey)
+        startSearches(count, delayMs, browser, prefix, useAI, aiUrl, aiModel, aiKey, useLocalAI, pregeneratedTerms)
 
         return START_NOT_STICKY
     }
 
     private fun startSearches(
         count: Int, delayMs: Long, browser: String, prefix: String,
-        useAI: Boolean, aiUrl: String, aiModel: String, aiKey: String
+        useAI: Boolean, aiUrl: String, aiModel: String, aiKey: String,
+        useLocalAI: Boolean, pregeneratedTerms: Array<String>?
     ) {
         searchJob = serviceScope.launch {
-            currentTerm = if (useAI) "Gerando pesquisas com IA..." else "Carregando pesquisas..."
-
-            val terms = if (useAI) {
-                AISearchGenerator.generate(count, aiUrl, aiModel, aiKey)
-            } else {
-                SearchTerms.getShuffled(count, prefix)
+            val terms = when {
+                pregeneratedTerms != null -> pregeneratedTerms.toList()
+                useAI && useLocalAI -> {
+                    currentTerm = "Gerando com IA local..."
+                    val localAI = LocalAIManager(this@SearchOverlayService)
+                    localAI.generateSearches(count) { token -> currentTerm = token }
+                }
+                useAI -> {
+                    currentTerm = "Gerando pesquisas com IA..."
+                    AISearchGenerator.generate(count, aiUrl, aiModel, aiKey)
+                }
+                else -> {
+                    currentTerm = "Carregando pesquisas..."
+                    SearchTerms.getShuffled(count, prefix)
+                }
             }
 
             for ((index, term) in terms.withIndex()) {

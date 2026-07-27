@@ -23,6 +23,11 @@ class SettingsRepository(private val context: Context) {
         val KEY_SEARCH_PREFIX = stringPreferencesKey("search_prefix")
         val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val KEY_DARK_THEME = stringPreferencesKey("dark_theme")
+        val KEY_USE_AI = booleanPreferencesKey("use_ai")
+        val KEY_AI_URL = stringPreferencesKey("ai_url")
+        val KEY_AI_MODEL = stringPreferencesKey("ai_model")
+        val KEY_AI_KEY = stringPreferencesKey("ai_key")
+        val KEY_SHOW_AI_PREVIEWS = booleanPreferencesKey("show_ai_previews")
     }
 
     val searchCount: Flow<Int> = context.dataStore.data.map { it[KEY_SEARCH_COUNT] ?: 30 }
@@ -31,6 +36,11 @@ class SettingsRepository(private val context: Context) {
     val searchPrefix: Flow<String> = context.dataStore.data.map { it[KEY_SEARCH_PREFIX] ?: "" }
     val dynamicColor: Flow<Boolean> = context.dataStore.data.map { it[KEY_DYNAMIC_COLOR] ?: true }
     val darkTheme: Flow<String> = context.dataStore.data.map { it[KEY_DARK_THEME] ?: "system" }
+    val useAI: Flow<Boolean> = context.dataStore.data.map { it[KEY_USE_AI] ?: true }
+    val aiUrl: Flow<String> = context.dataStore.data.map { it[KEY_AI_URL] ?: "" }
+    val aiModel: Flow<String> = context.dataStore.data.map { it[KEY_AI_MODEL] ?: "" }
+    val aiKey: Flow<String> = context.dataStore.data.map { it[KEY_AI_KEY] ?: "" }
+    val showAIPreviews: Flow<Boolean> = context.dataStore.data.map { it[KEY_SHOW_AI_PREVIEWS] ?: false }
 
     suspend fun setSearchCount(value: Int) {
         context.dataStore.edit { it[KEY_SEARCH_COUNT] = value }
@@ -54,5 +64,25 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setDarkTheme(value: String) {
         context.dataStore.edit { it[KEY_DARK_THEME] = value }
+    }
+
+    suspend fun setUseAI(value: Boolean) {
+        context.dataStore.edit { it[KEY_USE_AI] = value }
+    }
+
+    suspend fun setAiUrl(value: String) {
+        context.dataStore.edit { it[KEY_AI_URL] = value }
+    }
+
+    suspend fun setAiModel(value: String) {
+        context.dataStore.edit { it[KEY_AI_MODEL] = value }
+    }
+
+    suspend fun setAiKey(value: String) {
+        context.dataStore.edit { it[KEY_AI_KEY] = value }
+    }
+
+    suspend fun setShowAIPreviews(value: Boolean) {
+        context.dataStore.edit { it[KEY_SHOW_AI_PREVIEWS] = value }
     }
 }

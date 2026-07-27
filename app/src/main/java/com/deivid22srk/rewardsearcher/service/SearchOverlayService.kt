@@ -48,6 +48,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.deivid22srk.rewardsearcher.MainActivity
+import com.deivid22srk.rewardsearcher.data.AISearchGenerator
 import com.deivid22srk.rewardsearcher.data.SearchTerms
 import com.deivid22srk.rewardsearcher.ui.theme.RewardSearcherTheme
 import kotlinx.coroutines.CoroutineScope
@@ -65,6 +66,10 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
         const val EXTRA_DELAY_MS = "delay_ms"
         const val EXTRA_BROWSER = "browser"
         const val EXTRA_SEARCH_PREFIX = "search_prefix"
+        const val EXTRA_USE_AI = "use_ai"
+        const val EXTRA_AI_URL = "ai_url"
+        const val EXTRA_AI_MODEL = "ai_model"
+        const val EXTRA_AI_KEY = "ai_key"
         const val CHANNEL_ID = "search_overlay_channel"
         const val NOTIFICATION_ID = 1001
     }
@@ -104,6 +109,10 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
         val delayMs = intent?.getLongExtra(EXTRA_DELAY_MS, 3000L) ?: 3000L
         val browser = intent?.getStringExtra(EXTRA_BROWSER) ?: "bing"
         val prefix = intent?.getStringExtra(EXTRA_SEARCH_PREFIX) ?: ""
+        val useAI = intent?.getBooleanExtra(EXTRA_USE_AI, true) ?: true
+        val aiUrl = intent?.getStringExtra(EXTRA_AI_URL) ?: ""
+        val aiModel = intent?.getStringExtra(EXTRA_AI_MODEL) ?: ""
+        val aiKey = intent?.getStringExtra(EXTRA_AI_KEY) ?: ""
 
         totalCount = count
         currentIndex = 0
@@ -112,14 +121,24 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
 
         startForeground(NOTIFICATION_ID, createNotification())
         showOverlay()
-        startSearches(count, delayMs, browser, prefix)
+        startSearches(count, delayMs, browser, prefix, useAI, aiUrl, aiModel, aiKey)
 
         return START_NOT_STICKY
     }
 
-    private fun startSearches(count: Int, delayMs: Long, browser: String, prefix: String) {
-        val terms = SearchTerms.getShuffled(count, prefix)
+    private fun startSearches(
+        count: Int, delayMs: Long, browser: String, prefix: String,
+        useAI: Boolean, aiUrl: String, aiModel: String, aiKey: String
+    ) {
         searchJob = serviceScope.launch {
+            currentTerm = if (useAI) "Gerando pesquisas com IA..." else "Carregando pesquisas..."
+
+            val terms = if (useAI) {
+                AISearchGenerator.generate(count, aiUrl, aiModel, aiKey)
+            } else {
+                SearchTerms.getShuffled(count, prefix)
+            }
+
             for ((index, term) in terms.withIndex()) {
                 while (isPaused && isActive) {
                     delay(200)

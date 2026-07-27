@@ -33,6 +33,11 @@ class MainActivity : ComponentActivity() {
             val delayMs by settingsRepo.delayMs.collectAsState(initial = 3000L)
             val browser by settingsRepo.browser.collectAsState(initial = "bing")
             val searchPrefix by settingsRepo.searchPrefix.collectAsState(initial = "")
+            val useAI by settingsRepo.useAI.collectAsState(initial = true)
+            val aiUrl by settingsRepo.aiUrl.collectAsState(initial = "")
+            val aiModel by settingsRepo.aiModel.collectAsState(initial = "")
+            val aiKey by settingsRepo.aiKey.collectAsState(initial = "")
+            val showAIPreviews by settingsRepo.showAIPreviews.collectAsState(initial = false)
 
             val isDark = when (darkThemePref) {
                 "light" -> false
@@ -53,6 +58,11 @@ class MainActivity : ComponentActivity() {
                             delayMs = delayMs,
                             browser = browser,
                             searchPrefix = searchPrefix,
+                            useAI = useAI,
+                            aiUrl = aiUrl,
+                            aiModel = aiModel,
+                            aiKey = aiKey,
+                            showAIPreviews = showAIPreviews,
                             onNavigateToSettings = { navController.navigate("settings") }
                         )
                     }
@@ -62,10 +72,20 @@ class MainActivity : ComponentActivity() {
                             browser = browser,
                             dynamicColor = dynamicColor,
                             darkTheme = darkThemePref,
+                            useAI = useAI,
+                            aiUrl = aiUrl,
+                            aiModel = aiModel,
+                            aiKey = aiKey,
+                            showAIPreviews = showAIPreviews,
                             onDelayChange = { v -> lifecycleScope.launch { settingsRepo.setDelayMs(v) } },
                             onBrowserChange = { v -> lifecycleScope.launch { settingsRepo.setBrowser(v) } },
                             onDynamicColorChange = { v -> lifecycleScope.launch { settingsRepo.setDynamicColor(v) } },
                             onDarkThemeChange = { v -> lifecycleScope.launch { settingsRepo.setDarkTheme(v) } },
+                            onUseAIChange = { v -> lifecycleScope.launch { settingsRepo.setUseAI(v) } },
+                            onAiUrlChange = { v -> lifecycleScope.launch { settingsRepo.setAiUrl(v) } },
+                            onAiModelChange = { v -> lifecycleScope.launch { settingsRepo.setAiModel(v) } },
+                            onAiKeyChange = { v -> lifecycleScope.launch { settingsRepo.setAiKey(v) } },
+                            onShowAIPreviewsChange = { v -> lifecycleScope.launch { settingsRepo.setShowAIPreviews(v) } },
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }

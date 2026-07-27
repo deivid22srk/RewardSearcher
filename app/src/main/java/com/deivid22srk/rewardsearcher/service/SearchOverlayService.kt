@@ -39,6 +39,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewTreeLifecycleOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.ViewTreeSavedStateRegistryOwner
 import com.deivid22srk.rewardsearcher.MainActivity
 import com.deivid22srk.rewardsearcher.data.SearchTerms
 import com.deivid22srk.rewardsearcher.ui.theme.RewardSearcherTheme
@@ -50,7 +58,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-class SearchOverlayService : Service() {
+class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
 
     companion object {
         const val EXTRA_SEARCH_COUNT = "search_count"
@@ -60,6 +68,11 @@ class SearchOverlayService : Service() {
         const val CHANNEL_ID = "search_overlay_channel"
         const val NOTIFICATION_ID = 1001
     }
+
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    private val savedStateRegistryController = SavedStateRegistryController.create(this)
+
+    override val lifecycle: Lifecycle get() = lifecycleRegistry
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var searchJob: Job? = null
@@ -77,6 +90,10 @@ class SearchOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        savedStateRegistryController.performRestore(null)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
     }
@@ -143,6 +160,9 @@ class SearchOverlayService : Service() {
 
     private fun showOverlay() {
         val composeView = ComposeView(this).apply {
+            ViewTreeLifecycleOwner.set(this, this@SearchOverlayService)
+            ViewTreeSavedStateRegistryOwner.set(this, this@SearchOverlayService)
+
             setContent {
                 RewardSearcherTheme {
                     Surface(
@@ -282,6 +302,9 @@ class SearchOverlayService : Service() {
         searchJob?.cancel()
         overlayView?.let { windowManager?.removeView(it) }
         overlayView = null
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         super.onDestroy()
     }
 }

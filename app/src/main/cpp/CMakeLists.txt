@@ -6,15 +6,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 
-# Pin llama.cpp to a stable release tag (b4750) instead of master.
-# master moves fast and frequently breaks Android NDK builds; release tags
-# are reproducible and the modern sampler/vocab API used in llama-jni.cpp
-# has been stable since b3400+.
+# Pin llama.cpp to a stable release tag (b4751) via a release tarball.
+# Using URL+tarball instead of GIT_REPOSITORY+GIT_TAG because:
+#   * GIT_SHALLOW TRUE does not fetch tags (only the default branch),
+#     so checking out a tag like b4751 fails with "invalid reference".
+#   * The tarball is ~20 MB (vs ~hundreds of MB for a full git clone)
+#     and is fully deterministic — the SHA256 below pins the exact bytes.
+# The modern sampler / vocab / model API used in llama-jni.cpp has been
+# ABI-stable since llama.cpp b3400, so any bNNNN release >= b3400 works.
 FetchContent_Declare(
     llama
-    GIT_REPOSITORY https://github.com/ggerganov/llama.cpp.git
-    GIT_TAG        b4750
-    GIT_SHALLOW    TRUE
+    URL        https://github.com/ggml-org/llama.cpp/archive/refs/tags/b4751.tar.gz
+    URL_HASH   SHA256=4144819a5a8b833ae30445d0c741432472b2dd136fbe63d818ff8cdd125e9b39
 )
 
 # Disable everything we do not need to keep the build small and robust.

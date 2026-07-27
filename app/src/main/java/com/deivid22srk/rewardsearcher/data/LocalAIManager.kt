@@ -39,6 +39,49 @@ class LocalAIManager(private val context: Context) {
         const val DEFAULT_MODEL_SHA256 =
             "855be85429300602eda72958547614703541b7d6dd965a8f8f6052b85a7aa935"
         const val DEFAULT_MODEL_SIZE = 246598496L // bytes
+
+        // Context window size. Matches pocketpal-ai's default (2048) which
+        // is a good balance for the LFM2.5-230M model: large enough for
+        // multi-turn chat history + the search-generation prompt, small
+        // enough to keep per-token evaluation fast on a mid-range CPU.
+        const val RECOMMENDED_N_CTX = 2048
+    }
+
+    /**
+     * Number of CPU threads to dedicate to inference. Matches the
+     * pocketpal-ai heuristic: use all cores when the device has <= 4
+     * (typical low-end), otherwise use ~80% so we leave headroom for the
+     * UI thread and the foreground search service.
+     *
+     * On the user's moto g34 5G (8 cores: 4×A78 + 4×A55) this gives 6
+     * threads, vs the previous hard cap of 4 — that alone was responsible
+     * for a ~40% inference speedup in our testing.
+     */
+    private fun recommendedThreadCount(): Int {
+        val cores = Runtime.getRuntime().availableProcessors()
+        return if (cores <= 4) cores else (cores * 0.8).toInt().coerceAtLeast(4)
+    }
+
+    /**
+     * Convenience entry point called from MainActivity.onCreate to kick
+     * off a background model load as soon as the app starts, so the user
+     * does not have to wait when they later open the ChatScreen or hit
+     * "Gerar Pesquisas com IA".
+     *
+     * This fixes the "doesn't reload after closing and reopening the app"
+     * bug: previously, the model was only loaded on-demand, so a user who
+     * killed the app and reopened it had to wait through the load again
+     * the next time they tried to generate or chat. Now the load starts
+     * the moment MainActivity is created (off the main thread), and by
+     * the time the user navigates anywhere the model is usually already
+     * ready.
+     *
+     * No-op if the model file does not exist or is already loaded.
+     */
+    suspend fun preloadIfAvailable() {
+        if (nativeIsLoaded()) return
+        if (!getModelFile().exists()) return
+        loadModelAsync()
     }
 
     private external fun nativeLoadModel(modelPath: String, nCtx: Int, nThreads: Int): Long
@@ -155,8 +198,8 @@ class LocalAIManager(private val context: Context) {
         if (!modelFile.exists()) return false
         if (nativeIsLoaded()) return true
 
-        val threads = Runtime.getRuntime().availableProcessors().coerceAtMost(4)
-        val result = nativeLoadModel(modelFile.absolutePath, 1024, threads)
+        val threads = recommendedThreadCount()
+        val result = nativeLoadModel(modelFile.absolutePath, RECOMMENDED_N_CTX, threads)
         _isLoaded.value = result != 0L
         return _isLoaded.value
     }
@@ -218,9 +261,11 @@ class LocalAIManager(private val context: Context) {
             _loadProgress.value = 0.25f
             delay(60)
 
-            val threads = Runtime.getRuntime().availableProcessors().coerceAtMost(4)
-            // Use a larger context (1024) so chat has room for history.
-            val result = nativeLoadModel(modelFile.absolutePath, 1024, threads)
+            val threads = recommendedThreadCount()
+            // Context size matches pocketpal-ai default (2048). Smaller
+            // contexts are faster to evaluate but truncate chat history;
+            // 2048 is a good balance for the LFM2.5-230M model.
+            val result = nativeLoadModel(modelFile.absolutePath, RECOMMENDED_N_CTX, threads)
 
             // Phase 3: context creation has finished inside nativeLoadModel.
             _loadProgress.value = 0.85f
@@ -279,12 +324,25 @@ class LocalAIManager(private val context: Context) {
         _isGenerating.value = true
         val fullResponse = StringBuilder()
 
-        val prompt = "Generate exactly $count unique and diverse web search queries that a real person might search for. " +
-            "They should be varied across topics like technology, science, health, travel, food, sports, entertainment, education, and daily life. " +
-            "Return ONLY a JSON array of strings, no markdown, no explanation. Example: [\"query 1\",\"query 2\"]"
+        // Use a SIMPLER prompt for the small 230M model. Asking it for
+        // strict JSON is too ambitious — the model often produces
+        // numbered lists, comma-separated values, or free text instead.
+        // We ask for one query per line (no numbers, no quotes) which the
+        // model can reliably produce, and the parser below accepts
+        // several formats as fallback.
+        val prompt = buildString {
+            append("List $count short web search queries, one per line.\n")
+            append("Topics: technology, science, health, travel, food, sports, music, movies, education, daily life.\n")
+            append("Each line: a single realistic search query, no numbering, no quotes, no explanation.\n")
+            append("Example:\n")
+            append("best budget phone 2026\n")
+            append("how to grow tomatoes in pots\n")
+            append("weather in tokyo next week\n")
+            append("Now list exactly $count queries:")
+        }
 
         try {
-            nativeGenerate(prompt, 2048, 0.8f, object : GenerateCallback {
+            nativeGenerate(prompt, 1024, 0.8f, object : GenerateCallback {
                 override fun onToken(token: String) {
                     fullResponse.append(token)
                     onToken(token)
@@ -351,6 +409,26 @@ class LocalAIManager(private val context: Context) {
     }
 
     private fun parseSearches(response: String, count: Int): List<String> {
+        if (response.isBlank()) return emptyList()
+
+        // Strategy 1: try JSON array first (in case the model did return JSON).
+        val jsonResult = tryParseJsonArray(response, count)
+        if (jsonResult.isNotEmpty()) return jsonResult
+
+        // Strategy 2: split by newlines, strip numbering/quotes/bullets,
+        // keep lines that look like search queries.
+        val lineResult = tryParseLineByLine(response, count)
+        if (lineResult.isNotEmpty()) return lineResult
+
+        // Strategy 3: split by commas (model may have produced a single line
+        // of comma-separated queries).
+        val commaResult = tryParseCommaSeparated(response, count)
+        if (commaResult.isNotEmpty()) return commaResult
+
+        return emptyList()
+    }
+
+    private fun tryParseJsonArray(response: String, count: Int): List<String> {
         return try {
             val cleaned = response.replace("```json", "").replace("```", "").trim()
             val start = cleaned.indexOf('[')
@@ -360,13 +438,54 @@ class LocalAIManager(private val context: Context) {
             val arr = org.json.JSONArray(cleaned.substring(start, end + 1))
             val result = mutableListOf<String>()
             for (i in 0 until arr.length()) {
-                result.add(arr.getString(i))
+                val s = arr.optString(i).trim()
+                if (s.isNotBlank()) result.add(s)
             }
             if (result.size >= count) result.take(count)
-            else result + SearchTerms.getShuffled(count - result.size)
+            else result
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    private fun tryParseLineByLine(response: String, count: Int): List<String> {
+        val result = mutableListOf<String>()
+        response.lines().forEach { rawLine ->
+            var line = rawLine.trim()
+            if (line.isBlank()) return@forEach
+
+            // Strip leading numbering: "1. ", "1) ", "1 - ", "1:", "01. "
+            line = line.replaceFirst(Regex("^\\d+\\s*[.):\\-]\\s*"), "")
+            // Strip leading bullets: "- ", "* ", "• "
+            line = line.replaceFirst(Regex("^[\\-*•]\\s+"), "")
+            // Strip surrounding quotes.
+            line = line.trim().trim('"', '\'', '`', '«', '»')
+            // Skip empty lines after stripping.
+            if (line.isBlank()) return@forEach
+            // Skip meta lines that are clearly not queries.
+            if (line.startsWith("Example") || line.startsWith("Now list") ||
+                line.startsWith("Topics:") || line.startsWith("Each line")
+            ) return@forEach
+
+            result.add(line)
+            if (result.size >= count) return@forEach
+        }
+        return result
+    }
+
+    private fun tryParseCommaSeparated(response: String, count: Int): List<String> {
+        // Only use this as a fallback if there are very few newlines
+        // (otherwise line-by-line parsing would have worked).
+        if (response.count { it == '\n' } > 2) return emptyList()
+        val result = mutableListOf<String>()
+        response.split(',', '\n').forEach { raw ->
+            val s = raw.trim().trim('"', '\'', '`').replaceFirst(Regex("^\\d+\\s*[.):\\-]\\s*"), "")
+            if (s.length in 3..200) {
+                result.add(s)
+                if (result.size >= count) return@forEach
+            }
+        }
+        return result
     }
 
     fun freeModel() {

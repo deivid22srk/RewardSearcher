@@ -33,6 +33,15 @@ class MainActivity : ComponentActivity() {
         localAIManager = LocalAIManager(this)
         downloadManager = ModelDownloadManager(this)
 
+        // Kick off model preloading as soon as the app starts. This runs
+        // off the main thread (loadModelAsync uses Dispatchers.Default) so
+        // the UI is not blocked. By the time the user navigates to the
+        // ChatScreen or hits "Gerar Pesquisas com IA", the model is
+        // usually already loaded. No-op if the model file does not exist.
+        lifecycleScope.launch {
+            localAIManager.preloadIfAvailable()
+        }
+
         setContent {
             val dynamicColor by settingsRepo.dynamicColor.collectAsState(initial = true)
             val darkThemePref by settingsRepo.darkTheme.collectAsState(initial = "system")

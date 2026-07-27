@@ -102,7 +102,10 @@ fun SettingsScreen(
                         )
                         Slider(
                             value = delay,
-                            onValueChange = { delay = it },
+                            onValueChange = {
+                                delay = it
+                                onDelayChange((it * 1000).toLong())
+                            },
                             valueRange = 1f..15f
                         )
                     }

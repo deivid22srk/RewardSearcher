@@ -7,7 +7,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -15,6 +14,7 @@ import androidx.navigation.compose.rememberNavController
 import com.deivid22srk.rewardsearcher.data.LocalAIManager
 import com.deivid22srk.rewardsearcher.data.ModelDownloadManager
 import com.deivid22srk.rewardsearcher.data.SettingsRepository
+import com.deivid22srk.rewardsearcher.ui.screens.ChatScreen
 import com.deivid22srk.rewardsearcher.ui.screens.HomeScreen
 import com.deivid22srk.rewardsearcher.ui.screens.SettingsScreen
 import com.deivid22srk.rewardsearcher.ui.theme.RewardSearcherTheme
@@ -47,6 +47,13 @@ class MainActivity : ComponentActivity() {
             val showAIPreviews by settingsRepo.showAIPreviews.collectAsState(initial = false)
             val useLocalAI by settingsRepo.useLocalAI.collectAsState(initial = false)
 
+            // Feature 1
+            val chromeUrlParams by settingsRepo.chromeUrlParams.collectAsState(initial = "PC=U316&FORM=CHROMN")
+            // Feature 2
+            val dualBrowser by settingsRepo.dualBrowser.collectAsState(initial = false)
+            val bingCount by settingsRepo.bingCount.collectAsState(initial = 20)
+            val chromeCount by settingsRepo.chromeCount.collectAsState(initial = 30)
+
             val isDark = when (darkThemePref) {
                 "light" -> false
                 "dark" -> true
@@ -72,8 +79,14 @@ class MainActivity : ComponentActivity() {
                             aiKey = aiKey,
                             showAIPreviews = showAIPreviews,
                             useLocalAI = useLocalAI,
+                            chromeUrlParams = chromeUrlParams,
+                            dualBrowser = dualBrowser,
+                            bingCount = bingCount,
+                            chromeCount = chromeCount,
                             localAIManager = localAIManager,
-                            onNavigateToSettings = { navController.navigate("settings") }
+                            onDualBrowserChange = { v -> lifecycleScope.launch { settingsRepo.setDualBrowser(v) } },
+                            onNavigateToSettings = { navController.navigate("settings") },
+                            onNavigateToChat = { navController.navigate("chat") }
                         )
                     }
                     composable("settings") {
@@ -88,6 +101,10 @@ class MainActivity : ComponentActivity() {
                             aiKey = aiKey,
                             showAIPreviews = showAIPreviews,
                             useLocalAI = useLocalAI,
+                            chromeUrlParams = chromeUrlParams,
+                            dualBrowser = dualBrowser,
+                            bingCount = bingCount,
+                            chromeCount = chromeCount,
                             localAIManager = localAIManager,
                             downloadManager = downloadManager,
                             onDelayChange = { v -> lifecycleScope.launch { settingsRepo.setDelayMs(v) } },
@@ -100,6 +117,16 @@ class MainActivity : ComponentActivity() {
                             onAiKeyChange = { v -> lifecycleScope.launch { settingsRepo.setAiKey(v) } },
                             onShowAIPreviewsChange = { v -> lifecycleScope.launch { settingsRepo.setShowAIPreviews(v) } },
                             onUseLocalAIChange = { v -> lifecycleScope.launch { settingsRepo.setUseLocalAI(v) } },
+                            onChromeUrlParamsChange = { v -> lifecycleScope.launch { settingsRepo.setChromeUrlParams(v) } },
+                            onDualBrowserChange = { v -> lifecycleScope.launch { settingsRepo.setDualBrowser(v) } },
+                            onBingCountChange = { v -> lifecycleScope.launch { settingsRepo.setBingCount(v) } },
+                            onChromeCountChange = { v -> lifecycleScope.launch { settingsRepo.setChromeCount(v) } },
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("chat") {
+                        ChatScreen(
+                            localAIManager = localAIManager,
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }

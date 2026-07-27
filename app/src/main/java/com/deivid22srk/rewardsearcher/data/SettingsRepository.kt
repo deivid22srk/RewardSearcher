@@ -29,6 +29,14 @@ class SettingsRepository(private val context: Context) {
         val KEY_AI_KEY = stringPreferencesKey("ai_key")
         val KEY_SHOW_AI_PREVIEWS = booleanPreferencesKey("show_ai_previews")
         val KEY_USE_LOCAL_AI = booleanPreferencesKey("use_local_ai")
+
+        // Feature 1: Chrome URL parameters (e.g. "PC=U316&FORM=CHROMN")
+        val KEY_CHROME_URL_PARAMS = stringPreferencesKey("chrome_url_params")
+
+        // Feature 2: Dual browser mode
+        val KEY_DUAL_BROWSER = booleanPreferencesKey("dual_browser")
+        val KEY_BING_COUNT = intPreferencesKey("bing_count")
+        val KEY_CHROME_COUNT = intPreferencesKey("chrome_count")
     }
 
     val searchCount: Flow<Int> = context.dataStore.data.map { it[KEY_SEARCH_COUNT] ?: 30 }
@@ -43,6 +51,15 @@ class SettingsRepository(private val context: Context) {
     val aiKey: Flow<String> = context.dataStore.data.map { it[KEY_AI_KEY] ?: "" }
     val showAIPreviews: Flow<Boolean> = context.dataStore.data.map { it[KEY_SHOW_AI_PREVIEWS] ?: false }
     val useLocalAI: Flow<Boolean> = context.dataStore.data.map { it[KEY_USE_LOCAL_AI] ?: false }
+
+    // Default mirrors the official Bing-on-Chrome query string so Microsoft
+    // Rewards credits searches performed via Chrome are properly attributed.
+    val chromeUrlParams: Flow<String> =
+        context.dataStore.data.map { it[KEY_CHROME_URL_PARAMS] ?: "PC=U316&FORM=CHROMN" }
+
+    val dualBrowser: Flow<Boolean> = context.dataStore.data.map { it[KEY_DUAL_BROWSER] ?: false }
+    val bingCount: Flow<Int> = context.dataStore.data.map { it[KEY_BING_COUNT] ?: 20 }
+    val chromeCount: Flow<Int> = context.dataStore.data.map { it[KEY_CHROME_COUNT] ?: 30 }
 
     suspend fun setSearchCount(value: Int) {
         context.dataStore.edit { it[KEY_SEARCH_COUNT] = value }
@@ -90,5 +107,21 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setUseLocalAI(value: Boolean) {
         context.dataStore.edit { it[KEY_USE_LOCAL_AI] = value }
+    }
+
+    suspend fun setChromeUrlParams(value: String) {
+        context.dataStore.edit { it[KEY_CHROME_URL_PARAMS] = value }
+    }
+
+    suspend fun setDualBrowser(value: Boolean) {
+        context.dataStore.edit { it[KEY_DUAL_BROWSER] = value }
+    }
+
+    suspend fun setBingCount(value: Int) {
+        context.dataStore.edit { it[KEY_BING_COUNT] = value }
+    }
+
+    suspend fun setChromeCount(value: Int) {
+        context.dataStore.edit { it[KEY_CHROME_COUNT] = value }
     }
 }

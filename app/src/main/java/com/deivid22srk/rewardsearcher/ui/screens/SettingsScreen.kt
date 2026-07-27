@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -71,6 +72,12 @@ fun SettingsScreen(
     aiKey: String,
     showAIPreviews: Boolean,
     useLocalAI: Boolean,
+    // Feature 1
+    chromeUrlParams: String,
+    // Feature 2
+    dualBrowser: Boolean,
+    bingCount: Int,
+    chromeCount: Int,
     localAIManager: LocalAIManager,
     downloadManager: ModelDownloadManager,
     onDelayChange: (Long) -> Unit,
@@ -83,6 +90,10 @@ fun SettingsScreen(
     onAiKeyChange: (String) -> Unit,
     onShowAIPreviewsChange: (Boolean) -> Unit,
     onUseLocalAIChange: (Boolean) -> Unit,
+    onChromeUrlParamsChange: (String) -> Unit,
+    onDualBrowserChange: (Boolean) -> Unit,
+    onBingCountChange: (Int) -> Unit,
+    onChromeCountChange: (Int) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -93,6 +104,11 @@ fun SettingsScreen(
     var customModel by remember { mutableStateOf(aiModel) }
     var customKey by remember { mutableStateOf(aiKey) }
     var showCustomFields by remember { mutableStateOf(aiUrl.isNotBlank() || aiModel.isNotBlank() || aiKey.isNotBlank()) }
+    // Feature 1: editable mirror of the chrome URL params setting.
+    var chromeParams by remember(chromeUrlParams) { mutableStateOf(chromeUrlParams) }
+    // Feature 2: editable mirror of the dual-browser counts.
+    var bingCountLocal by remember(bingCount) { mutableFloatStateOf(bingCount.toFloat()) }
+    var chromeCountLocal by remember(chromeCount) { mutableFloatStateOf(chromeCount.toFloat()) }
 
     val downloadProgress by downloadManager.downloadProgress.collectAsState()
     val isDownloading by downloadManager.isDownloading.collectAsState()
@@ -195,6 +211,102 @@ fun SettingsScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                             ) {
                                 Text("Chrome")
+                            }
+                        }
+
+                        // Feature 1: Chrome URL parameters.
+                        // Visible whenever the single-browser mode is set to Chrome,
+                        // and always visible when dual-browser mode is enabled (since
+                        // dual mode always runs a Chrome phase).
+                        AnimatedVisibility(visible = browser == "chrome" || dualBrowser) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.OpenInBrowser,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "Parâmetros da URL do Chrome",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                Text(
+                                    text = "Anexado à URL do Bing quando a pesquisa abre no Chrome. Padrão: PC=U316&FORM=CHROMN",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                OutlinedTextField(
+                                    value = chromeParams,
+                                    onValueChange = {
+                                        chromeParams = it
+                                        onChromeUrlParamsChange(it)
+                                    },
+                                    placeholder = { Text("PC=U316&FORM=CHROMN") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = MaterialTheme.shapes.large,
+                                    singleLine = true
+                                )
+                            }
+                        }
+                    }
+
+                    // Feature 2: dual-browser toggle + per-browser counts.
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Modo duplo navegador",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = "Faz N pesquisas no Bing e M no Chrome em sequência",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = dualBrowser,
+                            onCheckedChange = onDualBrowserChange
+                        )
+                    }
+                    AnimatedVisibility(visible = dualBrowser) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "Pesquisas no Bing: ${bingCountLocal.roundToInt()}",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Slider(
+                                    value = bingCountLocal,
+                                    onValueChange = {
+                                        bingCountLocal = it
+                                        onBingCountChange(it.roundToInt())
+                                    },
+                                    valueRange = 0f..100f
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "Pesquisas no Chrome: ${chromeCountLocal.roundToInt()}",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Slider(
+                                    value = chromeCountLocal,
+                                    onValueChange = {
+                                        chromeCountLocal = it
+                                        onChromeCountChange(it.roundToInt())
+                                    },
+                                    valueRange = 0f..100f
+                                )
                             }
                         }
                     }

@@ -3,6 +3,7 @@ package com.deivid22srk.rewardsearcher.ui.screens
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
@@ -36,10 +38,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -71,15 +75,31 @@ fun HomeScreen(
     aiKey: String,
     showAIPreviews: Boolean,
     useLocalAI: Boolean,
+    // Feature 1
+    chromeUrlParams: String,
+    // Feature 2
+    dualBrowser: Boolean,
+    bingCount: Int,
+    chromeCount: Int,
     localAIManager: LocalAIManager,
-    onNavigateToSettings: () -> Unit
+    onDualBrowserChange: (Boolean) -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToChat: () -> Unit
 ) {
     val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
 
+    // Real loading progress from the LocalAIManager (Feature 3).
+    val isModelLoaded by localAIManager.isLoaded.collectAsState()
+    val isModelLoading by localAIManager.isLoading.collectAsState()
+    val modelLoadProgress by localAIManager.loadProgress.collectAsState()
+    val modelLoadStage by localAIManager.loadStage.collectAsState()
+
     var count by remember { mutableFloatStateOf(searchCount.toFloat()) }
-    var prefix by remember { mutableStateOf(searchPrefix) }
+    var bingCountState by remember(bingCount) { mutableFloatStateOf(bingCount.toFloat()) }
+    var chromeCountState by remember(chromeCount) { mutableFloatStateOf(chromeCount.toFloat()) }
+    var prefix by remember(searchPrefix) { mutableStateOf(searchPrefix) }
     var showGenerateDialog by remember { mutableStateOf(false) }
     var generatedTerms by remember { mutableStateOf<List<String>>(emptyList()) }
     var isGenerating by remember { mutableStateOf(false) }
@@ -94,6 +114,20 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // Feature 3: real progress while the model is being loaded
+                    // for generation. Replaces the previous "freezes for a few
+                    // seconds" behaviour where the UI appeared hung.
+                    if (useLocalAI && isModelLoading && !isModelLoaded) {
+                        LinearProgressIndicator(
+                            progress = { modelLoadProgress.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = "${(modelLoadProgress * 100).roundToInt()}% — ${modelLoadStage.ifBlank { "Carregando…" }}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     if (isGenerating) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -101,7 +135,7 @@ fun HomeScreen(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                             Text(
-                                text = if (useLocalAI) "Gerando com IA local..." else "Gerando com IA...",
+                                text = if (useLocalAI) "Gerando com IA local…" else "Gerando com IA…",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
@@ -142,7 +176,7 @@ fun HomeScreen(
             },
             confirmButton = {
                 if (isGenerating) {
-                    TextButton(onClick = {}) { Text("Aguarde...") }
+                    TextButton(onClick = {}) { Text("Aguarde…") }
                 } else {
                     TextButton(onClick = { showGenerateDialog = false }) { Text("Fechar") }
                 }
@@ -151,15 +185,23 @@ fun HomeScreen(
                 if (!isGenerating && generatedTerms.isNotEmpty()) {
                     TextButton(onClick = {
                         showGenerateDialog = false
-                        val intent = Intent(context, SearchOverlayService::class.java).apply {
-                            putExtra(SearchOverlayService.EXTRA_SEARCH_COUNT, count.roundToInt())
-                            putExtra(SearchOverlayService.EXTRA_DELAY_MS, delayMs)
-                            putExtra(SearchOverlayService.EXTRA_BROWSER, browser)
-                            putExtra(SearchOverlayService.EXTRA_SEARCH_PREFIX, prefix)
-                            putExtra(SearchOverlayService.EXTRA_USE_AI, false)
-                            putExtra(SearchOverlayService.EXTRA_PREGENERATED_TERMS, generatedTerms.toTypedArray())
-                        }
-                        context.startForegroundService(intent)
+                        startService(
+                            context = context,
+                            count = count.roundToInt(),
+                            delayMs = delayMs,
+                            browser = browser,
+                            prefix = prefix,
+                            useAI = false,
+                            aiUrl = aiUrl,
+                            aiModel = aiModel,
+                            aiKey = aiKey,
+                            useLocalAI = useLocalAI,
+                            pregeneratedTerms = generatedTerms,
+                            chromeUrlParams = chromeUrlParams,
+                            dualBrowser = dualBrowser,
+                            bingCount = bingCountState.roundToInt(),
+                            chromeCount = chromeCountState.roundToInt()
+                        )
                     }) {
                         Text("Iniciar com estas")
                     }
@@ -179,6 +221,10 @@ fun HomeScreen(
                     )
                 },
                 actions = {
+                    // Feature 4: chat button — opens the ChatScreen.
+                    IconButton(onClick = onNavigateToChat) {
+                        Icon(Icons.Default.Chat, contentDescription = "Chat com IA local")
+                    }
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Configurações")
                     }
@@ -216,13 +262,21 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "${count.roundToInt()} pesquisas",
+                        text = if (dualBrowser) {
+                            "${bingCountState.roundToInt() + chromeCountState.roundToInt()} pesquisas"
+                        } else {
+                            "${count.roundToInt()} pesquisas"
+                        },
                         style = MaterialTheme.typography.headlineLarge,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Microsoft Rewards via ${if (browser == "bing") "Bing" else "Chrome"}",
+                        text = if (dualBrowser) {
+                            "${bingCountState.roundToInt()} Bing + ${chromeCountState.roundToInt()} Chrome"
+                        } else {
+                            "Microsoft Rewards via ${if (browser == "bing") "Bing" else "Chrome"}"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                     )
@@ -247,22 +301,94 @@ fun HomeScreen(
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Quantidade de pesquisas",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Slider(
-                    value = count,
-                    onValueChange = { count = it },
-                    valueRange = 1f..100f
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+            // Feature 2: dual-browser toggle.
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                shape = MaterialTheme.shapes.extraLarge
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("1", style = MaterialTheme.typography.bodySmall)
-                    Text("100", style = MaterialTheme.typography.bodySmall)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Modo duplo navegador",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "Faz N pesquisas no Bing e depois M no Chrome",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = dualBrowser,
+                            onCheckedChange = onDualBrowserChange
+                        )
+                    }
+                }
+            }
+
+            // Single-browser count slider (hidden in dual mode).
+            AnimatedVisibility(visible = !dualBrowser) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Quantidade de pesquisas",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Slider(
+                        value = count,
+                        onValueChange = { count = it },
+                        valueRange = 1f..100f
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("1", style = MaterialTheme.typography.bodySmall)
+                        Text("100", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
+            // Dual-browser count sliders (shown only in dual mode).
+            AnimatedVisibility(visible = dualBrowser) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Pesquisas no Bing: ${bingCountState.roundToInt()}",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Slider(
+                            value = bingCountState,
+                            onValueChange = { bingCountState = it },
+                            valueRange = 0f..100f
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Pesquisas no Chrome: ${chromeCountState.roundToInt()}",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Slider(
+                            value = chromeCountState,
+                            onValueChange = { chromeCountState = it },
+                            valueRange = 0f..100f
+                        )
+                    }
+                    Text(
+                        text = "Ao concluir as pesquisas no Bing, o app continua automaticamente no Chrome.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -282,13 +408,18 @@ fun HomeScreen(
                         generatedTerms = emptyList()
                         streamingText = ""
                         scope.launch {
+                            val total = if (dualBrowser) {
+                                bingCountState.roundToInt() + chromeCountState.roundToInt()
+                            } else {
+                                count.roundToInt()
+                            }
                             if (useLocalAI) {
-                                generatedTerms = localAIManager.generateSearches(count.roundToInt()) { token ->
+                                generatedTerms = localAIManager.generateSearches(total) { token ->
                                     streamingText += token
                                 }
                             } else {
                                 generatedTerms = AISearchGenerator.generate(
-                                    count.roundToInt(), aiUrl, aiModel, aiKey
+                                    total, aiUrl, aiModel, aiKey
                                 )
                             }
                             isGenerating = false
@@ -303,6 +434,20 @@ fun HomeScreen(
                 }
             }
 
+            // Feature 4: quick chat button — alternative entry point to the
+            // ChatScreen (in addition to the top-bar icon).
+            if (useLocalAI) {
+                FilledTonalButton(
+                    onClick = onNavigateToChat,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large
+                ) {
+                    Icon(Icons.Default.Chat, contentDescription = null)
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text("Conversar com o modelo local")
+                }
+            }
+
             Button(
                 onClick = {
                     if (!Settings.canDrawOverlays(context)) {
@@ -312,18 +457,23 @@ fun HomeScreen(
                         )
                         context.startActivity(intent)
                     } else {
-                        val intent = Intent(context, SearchOverlayService::class.java).apply {
-                            putExtra(SearchOverlayService.EXTRA_SEARCH_COUNT, count.roundToInt())
-                            putExtra(SearchOverlayService.EXTRA_DELAY_MS, delayMs)
-                            putExtra(SearchOverlayService.EXTRA_BROWSER, browser)
-                            putExtra(SearchOverlayService.EXTRA_SEARCH_PREFIX, prefix)
-                            putExtra(SearchOverlayService.EXTRA_USE_AI, useAI)
-                            putExtra(SearchOverlayService.EXTRA_AI_URL, aiUrl)
-                            putExtra(SearchOverlayService.EXTRA_AI_MODEL, aiModel)
-                            putExtra(SearchOverlayService.EXTRA_AI_KEY, aiKey)
-                            putExtra(SearchOverlayService.EXTRA_USE_LOCAL_AI, useLocalAI)
-                        }
-                        context.startForegroundService(intent)
+                        startService(
+                            context = context,
+                            count = count.roundToInt(),
+                            delayMs = delayMs,
+                            browser = browser,
+                            prefix = prefix,
+                            useAI = useAI,
+                            aiUrl = aiUrl,
+                            aiModel = aiModel,
+                            aiKey = aiKey,
+                            useLocalAI = useLocalAI,
+                            pregeneratedTerms = null,
+                            chromeUrlParams = chromeUrlParams,
+                            dualBrowser = dualBrowser,
+                            bingCount = bingCountState.roundToInt(),
+                            chromeCount = chromeCountState.roundToInt()
+                        )
                     }
                 },
                 modifier = Modifier
@@ -345,4 +495,45 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
+}
+
+/**
+ * Centralized helper that builds the foreground-service Intent with all the
+ * extras the SearchOverlayService needs. Keeps the call sites (the "Iniciar
+ * Pesquisas" button and the "Iniciar com estas" dialog button) in sync.
+ */
+private fun startService(
+    context: android.content.Context,
+    count: Int,
+    delayMs: Long,
+    browser: String,
+    prefix: String,
+    useAI: Boolean,
+    aiUrl: String,
+    aiModel: String,
+    aiKey: String,
+    useLocalAI: Boolean,
+    pregeneratedTerms: List<String>?,
+    chromeUrlParams: String,
+    dualBrowser: Boolean,
+    bingCount: Int,
+    chromeCount: Int
+) {
+    val intent = Intent(context, SearchOverlayService::class.java).apply {
+        putExtra(SearchOverlayService.EXTRA_SEARCH_COUNT, count)
+        putExtra(SearchOverlayService.EXTRA_DELAY_MS, delayMs)
+        putExtra(SearchOverlayService.EXTRA_BROWSER, browser)
+        putExtra(SearchOverlayService.EXTRA_SEARCH_PREFIX, prefix)
+        putExtra(SearchOverlayService.EXTRA_USE_AI, useAI)
+        putExtra(SearchOverlayService.EXTRA_AI_URL, aiUrl)
+        putExtra(SearchOverlayService.EXTRA_AI_MODEL, aiModel)
+        putExtra(SearchOverlayService.EXTRA_AI_KEY, aiKey)
+        putExtra(SearchOverlayService.EXTRA_USE_LOCAL_AI, useLocalAI)
+        putExtra(SearchOverlayService.EXTRA_CHROME_URL_PARAMS, chromeUrlParams)
+        putExtra(SearchOverlayService.EXTRA_DUAL_BROWSER, dualBrowser)
+        putExtra(SearchOverlayService.EXTRA_BING_COUNT, bingCount)
+        putExtra(SearchOverlayService.EXTRA_CHROME_COUNT, chromeCount)
+        pregeneratedTerms?.let { putExtra(SearchOverlayService.EXTRA_PREGENERATED_TERMS, it.toTypedArray()) }
+    }
+    context.startForegroundService(intent)
 }

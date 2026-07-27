@@ -75,6 +75,19 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
         const val EXTRA_PREGENERATED_TERMS = "pregenerated_terms"
         const val CHANNEL_ID = "search_overlay_channel"
         const val NOTIFICATION_ID = 1001
+
+        // Feature 1: Chrome URL params (e.g. "PC=U316&FORM=CHROMN")
+        const val EXTRA_CHROME_URL_PARAMS = "chrome_url_params"
+
+        // Feature 2: dual-browser mode
+        const val EXTRA_DUAL_BROWSER = "dual_browser"
+        const val EXTRA_BING_COUNT = "bing_count"
+        const val EXTRA_CHROME_COUNT = "chrome_count"
+
+        // Chrome package used when the user selects the "Chrome" browser
+        // or when the dual-browser workflow reaches the Chrome phase.
+        private const val CHROME_PACKAGE = "com.android.chrome"
+        private const val BING_PACKAGE = "com.microsoft.bing"
     }
 
     private val lifecycleRegistry = LifecycleRegistry(this)
@@ -94,6 +107,7 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
     private var isPaused by mutableStateOf(false)
     private var isRunning by mutableStateOf(false)
     private var currentTerm by mutableStateOf("")
+    private var currentBrowserLabel by mutableStateOf("")
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -119,50 +133,78 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
         val useLocalAI = intent?.getBooleanExtra(EXTRA_USE_LOCAL_AI, false) ?: false
         val pregeneratedTerms = intent?.getStringArrayExtra(EXTRA_PREGENERATED_TERMS)
 
-        totalCount = count
+        // Feature 1
+        val chromeUrlParams = intent?.getStringExtra(EXTRA_CHROME_URL_PARAMS) ?: "PC=U316&FORM=CHROMN"
+
+        // Feature 2
+        val dualBrowser = intent?.getBooleanExtra(EXTRA_DUAL_BROWSER, false) ?: false
+        val bingCount = intent?.getIntExtra(EXTRA_BING_COUNT, 20) ?: 20
+        val chromeCount = intent?.getIntExtra(EXTRA_CHROME_COUNT, 30) ?: 30
+
+        totalCount = if (dualBrowser) bingCount + chromeCount else count
         currentIndex = 0
         isPaused = false
         isRunning = true
+        currentBrowserLabel = if (dualBrowser) "Bing" else browserLabel(browser)
 
         startForeground(NOTIFICATION_ID, createNotification())
         showOverlay()
-        startSearches(count, delayMs, browser, prefix, useAI, aiUrl, aiModel, aiKey, useLocalAI, pregeneratedTerms)
+
+        if (dualBrowser) {
+            startDualBrowserSearches(
+                bingCount, chromeCount, delayMs, prefix,
+                useAI, aiUrl, aiModel, aiKey, useLocalAI,
+                pregeneratedTerms, chromeUrlParams
+            )
+        } else {
+            startSearches(
+                count, delayMs, browser, prefix,
+                useAI, aiUrl, aiModel, aiKey, useLocalAI,
+                pregeneratedTerms, chromeUrlParams
+            )
+        }
 
         return START_NOT_STICKY
     }
 
+    private fun browserLabel(browser: String): String =
+        if (browser == "chrome") "Chrome" else "Bing"
+
+    /**
+     * Single-browser workflow (existing behaviour, now also threads the
+     * Chrome URL params through to [performSearch]).
+     */
     private fun startSearches(
         count: Int, delayMs: Long, browser: String, prefix: String,
         useAI: Boolean, aiUrl: String, aiModel: String, aiKey: String,
-        useLocalAI: Boolean, pregeneratedTerms: Array<String>?
+        useLocalAI: Boolean, pregeneratedTerms: Array<String>?,
+        chromeUrlParams: String
     ) {
         searchJob = serviceScope.launch {
             val terms = when {
                 pregeneratedTerms != null -> pregeneratedTerms.toList()
                 useAI && useLocalAI -> {
-                    currentTerm = "Gerando com IA local..."
+                    currentTerm = "Gerando com IA local…"
                     val localAI = LocalAIManager(this@SearchOverlayService)
                     localAI.generateSearches(count) { token -> currentTerm = token }
                 }
                 useAI -> {
-                    currentTerm = "Gerando pesquisas com IA..."
+                    currentTerm = "Gerando pesquisas com IA…"
                     AISearchGenerator.generate(count, aiUrl, aiModel, aiKey)
                 }
                 else -> {
-                    currentTerm = "Carregando pesquisas..."
+                    currentTerm = "Carregando pesquisas…"
                     SearchTerms.getShuffled(count, prefix)
                 }
             }
 
             for ((index, term) in terms.withIndex()) {
-                while (isPaused && isActive) {
-                    delay(200)
-                }
+                while (isPaused && isActive) delay(200)
                 if (!isActive) break
 
                 currentIndex = index + 1
                 currentTerm = term
-                performSearch(term, browser)
+                performSearch(term, browser, chromeUrlParams)
                 delay(delayMs)
             }
             if (isActive) {
@@ -172,21 +214,113 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
         }
     }
 
-    private fun performSearch(term: String, browser: String) {
-        val encoded = Uri.encode(term)
-        val url = "https://www.bing.com/search?q=$encoded"
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    /**
+     * Feature 2: dual-browser workflow.
+     * Runs `bingCount` searches via the Bing app first, then `chromeCount`
+     * searches via Chrome (with the user-configurable URL params). The
+     * overlay's `currentBrowserLabel` is updated so the user always knows
+     * which phase is active.
+     *
+     * If AI generation is enabled, the model produces the full combined
+     * batch up front and the terms are split between the two phases. If
+     * AI is disabled, the static term pool is shuffled and split.
+     */
+    private fun startDualBrowserSearches(
+        bingCount: Int, chromeCount: Int, delayMs: Long, prefix: String,
+        useAI: Boolean, aiUrl: String, aiModel: String, aiKey: String,
+        useLocalAI: Boolean, pregeneratedTerms: Array<String>?,
+        chromeUrlParams: String
+    ) {
+        searchJob = serviceScope.launch {
+            val total = bingCount + chromeCount
+            val allTerms = when {
+                pregeneratedTerms != null && pregeneratedTerms.isNotEmpty() -> {
+                    pregeneratedTerms.toList()
+                }
+                useAI && useLocalAI -> {
+                    currentTerm = "Gerando com IA local…"
+                    val localAI = LocalAIManager(this@SearchOverlayService)
+                    localAI.generateSearches(total) { token -> currentTerm = token }
+                }
+                useAI -> {
+                    currentTerm = "Gerando pesquisas com IA…"
+                    AISearchGenerator.generate(total, aiUrl, aiModel, aiKey)
+                }
+                else -> {
+                    currentTerm = "Carregando pesquisas…"
+                    SearchTerms.getShuffled(total, prefix)
+                }
+            }
 
-        if (browser == "bing") {
-            intent.setPackage("com.microsoft.bing")
+            val bingTerms = allTerms.take(bingCount)
+            val chromeTerms = allTerms.drop(bingCount).take(chromeCount)
+
+            // Phase 1: Bing app
+            currentBrowserLabel = "Bing"
+            for ((index, term) in bingTerms.withIndex()) {
+                while (isPaused && isActive) delay(200)
+                if (!isActive) break
+                currentIndex = index + 1
+                currentTerm = term
+                performSearch(term, "bing", chromeUrlParams)
+                delay(delayMs)
+            }
+
+            // Phase 2: Chrome (with URL params)
+            if (isActive && chromeTerms.isNotEmpty()) {
+                currentBrowserLabel = "Chrome"
+                for ((index, term) in chromeTerms.withIndex()) {
+                    while (isPaused && isActive) delay(200)
+                    if (!isActive) break
+                    currentIndex = bingCount + index + 1
+                    currentTerm = term
+                    performSearch(term, "chrome", chromeUrlParams)
+                    delay(delayMs)
+                }
+            }
+
+            if (isActive) {
+                isRunning = false
+                stopSelf()
+            }
         }
+    }
 
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    /**
+     * Launches a Bing search in the chosen browser.
+     *
+     * For "bing"  → opens the Bing app (com.microsoft.bing) with a clean URL.
+     * For "chrome" → opens Chrome (com.android.chrome) with the Bing search
+     *                URL plus the user-configurable query params
+     *                (default "PC=U316&FORM=CHROMN") so Microsoft Rewards
+     *                credits the search to the Chrome-on-Bing flow.
+     *
+     * If the chosen app is not installed, falls back to the system default
+     * browser via ACTION_VIEW without a package set.
+     */
+    private fun performSearch(term: String, browser: String, chromeUrlParams: String) {
+        val encoded = Uri.encode(term)
+        val params = chromeUrlParams.trim()
+        val url = if (browser == "chrome" && params.isNotEmpty()) {
+            "https://www.bing.com/search?q=$encoded&$params"
+        } else {
+            "https://www.bing.com/search?q=$encoded"
+        }
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        when (browser) {
+            "bing" -> intent.setPackage(BING_PACKAGE)
+            "chrome" -> intent.setPackage(CHROME_PACKAGE)
+        }
         try {
             startActivity(intent)
         } catch (_: Exception) {
-            val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // Fallback: drop the package restriction and let the system
+            // resolver pick any browser that can handle the URL.
+            val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             try {
                 startActivity(fallback)
             } catch (_: Exception) {}
@@ -217,6 +351,14 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
                                 color = MaterialTheme.colorScheme.primary
                             )
 
+                            if (currentBrowserLabel.isNotBlank()) {
+                                Text(
+                                    text = "Navegador: $currentBrowserLabel",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -228,7 +370,7 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
                                     )
                                 }
                                 Text(
-                                    text = if (isPaused) "Pausado" else "Pesquisando...",
+                                    text = if (isPaused) "Pausado" else "Pesquisando…",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -326,7 +468,7 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
 
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Reward Searcher")
-            .setContentText("Realizando pesquisas...")
+            .setContentText("Realizando pesquisas…")
             .setSmallIcon(android.R.drawable.ic_menu_search)
             .setContentIntent(pendingIntent)
             .setOngoing(true)

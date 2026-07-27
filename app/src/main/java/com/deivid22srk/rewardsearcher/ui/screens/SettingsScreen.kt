@@ -49,7 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.Localext
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.deivid22srk.rewardsearcher.data.LocalAIManager
@@ -107,8 +107,8 @@ fun SettingsScreen(
             try {
                 val inputStream = context.contentResolver.openInputStream(it)
                 val tempFile = File(context.cacheDir, "import_model.gguf")
-                inputStream?.use { input ->
-                    tempFile.outputStream().use { output -> input.copyTo(output) }
+                inputStream?.use { input: java.io.InputStream ->
+                    tempFile.outputStream().use { output: java.io.OutputStream -> input.copyTo(output) }
                 }
                 val success = downloadManager.importModel(tempFile)
                 tempFile.delete()
@@ -204,7 +204,7 @@ fun SettingsScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceainerHigh
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
                 shape = MaterialTheme.shapes.extraLarge
             ) {

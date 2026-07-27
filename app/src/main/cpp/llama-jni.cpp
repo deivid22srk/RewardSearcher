@@ -70,15 +70,25 @@ Java_com_deivid22srk_rewardsearcher_data_LocalAIManager_nativeGenerate(
 
     const llama_vocab *vocab = llama_model_get_vocab(g_model);
 
-    std::vector<llama_token> tokens;
-    tokens = llama_tokenize(vocab, promptText.c_str(), promptText.size(), nullptr, 0, true, true);
-    std::vector<llama_token> tmp(tokens.size());
-    int nTokens = llama_tokenize(vocab, promptText.c_str(), promptText.size(), tmp.data(), tmp.size(), true, true);
+    int nPromptMax = promptText.size() + 256;
+    std::vector<llama_token> tokens(nPromptMax);
+    int nTokens = llama_tokenize(vocab, promptText.c_str(), promptText.size(),
+                                  tokens.data(), tokens.size(), true, true);
+    if (nTokens < 0) {
+        tokens.resize(-nTokens);
+        nTokens = llama_tokenize(vocab, promptText.c_str(), promptText.size(),
+                                  tokens.data(), tokens.size(), true, true);
+    }
     tokens.resize(nTokens);
 
     llama_batch batch = llama_batch_init(512, 0, 1);
     for (int i = 0; i < nTokens; i++) {
-        llama_batch_add(batch, tokens[i], i, {0}, (i == nTokens - 1));
+        batch.token[batch.n_tokens] = tokens[i];
+        batch.pos[batch.n_tokens] = i;
+        batch.n_seq_id[batch.n_tokens] = 1;
+        batch.seq_id[batch.n_tokens][0] = 0;
+        batch.logits[batch.n_tokens] = (i == nTokens - 1);
+        batch.n_tokens++;
     }
 
     if (llama_decode(g_ctx, batch) != 0) {
@@ -88,28 +98,20 @@ Java_com_deivid22srk_rewardsearcher_data_LocalAIManager_nativeGenerate(
         return;
     }
 
+    llama_sampler *sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    if (temperature > 0.0f) {
+        llama_sampler_chain_add(sampler, llama_sampler_init_temp(temperature));
+        llama_sampler_chain_add(sampler, llama_sampler_init_dist(0xFFFFFFFF));
+    } else {
+        llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
+    }
+
     llama_token newToken;
-    std::string result;
     int nGenerated = 0;
+    int nCur = nTokens;
 
     while (nGenerated < maxTokens) {
-        float logits[llama_vocab_n_tokens(vocab)];
-        llama_get_logits(g_ctx, logits);
-
-        int nVocab = llama_vocab_n_tokens(vocab);
-        std::vector<llama_token_data> candidates(nVocab);
-        for (int i = 0; i < nVocab; i++) {
-            candidates[i] = {i, logits[i], 0.0f};
-        }
-
-        llama_token_data_array cur = {candidates.data(), candidates.size(), false};
-
-        if (temperature > 0.0f) {
-            llama_sample_temp(&cur, temperature);
-            newToken = llama_sample_token(g_ctx, &cur);
-        } else {
-            newToken = llama_sample_token_greedy(g_ctx, &cur);
-        }
+        newToken = llama_sampler_sample(sampler, g_ctx, -1);
 
         if (llama_vocab_is_eog(vocab, newToken)) break;
 
@@ -117,19 +119,25 @@ Java_com_deivid22srk_rewardsearcher_data_LocalAIManager_nativeGenerate(
         int n = llama_token_to_piece(vocab, newToken, buf, sizeof(buf), 0, true);
         if (n > 0) {
             std::string piece(buf, n);
-            result += piece;
             jstring jpiece = env->NewStringUTF(piece.c_str());
             env->CallVoidMethod(callback, onToken, jpiece);
             env->DeleteLocalRef(jpiece);
         }
 
         llama_batch_clear(batch);
-        llama_batch_add(batch, newToken, nTokens + nGenerated, {0}, true);
+        batch.token[0] = newToken;
+        batch.pos[0] = nCur;
+        batch.n_seq_id[0] = 1;
+        batch.seq_id[0][0] = 0;
+        batch.logits[0] = true;
+        batch.n_tokens = 1;
 
         if (llama_decode(g_ctx, batch) != 0) break;
+        nCur++;
         nGenerated++;
     }
 
+    llama_sampler_free(sampler);
     llama_batch_free(batch);
     env->CallVoidMethod(callback, onComplete);
 }

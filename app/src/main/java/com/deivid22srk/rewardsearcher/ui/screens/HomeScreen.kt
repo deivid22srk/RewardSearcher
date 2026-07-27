@@ -140,6 +140,7 @@ fun HomeScreen(
                 Slider(
                     value = count,
                     onValueChange = { count = it },
+                    onValueChangeFinished = {},
                     valueRange = 1f..100f,
                     steps = 98
                 )

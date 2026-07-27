@@ -42,11 +42,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
-import androidx.lifecycle.ViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
-import androidx.savedstate.ViewTreeSavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.deivid22srk.rewardsearcher.MainActivity
 import com.deivid22srk.rewardsearcher.data.SearchTerms
 import com.deivid22srk.rewardsearcher.ui.theme.RewardSearcherTheme
@@ -73,6 +73,7 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
 
     override val lifecycle: Lifecycle get() = lifecycleRegistry
+    override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var searchJob: Job? = null
@@ -160,8 +161,8 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
 
     private fun showOverlay() {
         val composeView = ComposeView(this).apply {
-            ViewTreeLifecycleOwner.set(this, this@SearchOverlayService)
-            ViewTreeSavedStateRegistryOwner.set(this, this@SearchOverlayService)
+            setViewTreeLifecycleOwner(this@SearchOverlayService)
+            setViewTreeSavedStateRegistryOwner(this@SearchOverlayService)
 
             setContent {
                 RewardSearcherTheme {

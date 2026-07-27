@@ -414,8 +414,21 @@ fun HomeScreen(
                                 count.roundToInt()
                             }
                             if (useLocalAI) {
-                                generatedTerms = localAIManager.generateSearches(total) { token ->
+                                // Use fallbackOnError=false so the user is
+                                // told the model did not load instead of
+                                // being silently handed static terms.
+                                generatedTerms = localAIManager.generateSearches(
+                                    total,
+                                    fallbackOnError = false
+                                ) { token ->
                                     streamingText += token
+                                }
+                                if (generatedTerms.isEmpty()) {
+                                    // Surface the load error in the dialog
+                                    // so the user knows why nothing was
+                                    // generated.
+                                    streamingText = "Erro ao gerar com IA local:\n" +
+                                        (localAIManager.loadError.value ?: "motivo desconhecido")
                                 }
                             } else {
                                 generatedTerms = AISearchGenerator.generate(

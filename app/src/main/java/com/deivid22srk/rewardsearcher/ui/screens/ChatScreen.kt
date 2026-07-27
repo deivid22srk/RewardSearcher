@@ -73,6 +73,7 @@ fun ChatScreen(
     val isLoading by localAIManager.isLoading.collectAsState()
     val loadProgress by localAIManager.loadProgress.collectAsState()
     val loadStage by localAIManager.loadStage.collectAsState()
+    val loadError by localAIManager.loadError.collectAsState()
     val isGenerating by localAIManager.isGenerating.collectAsState()
 
     // Conversation history shown in the UI. Each entry is either a user
@@ -251,6 +252,43 @@ fun ChatScreen(
                         onClick = { scope.launch { localAIManager.loadModelAsync() } }
                     ) {
                         Text("Carregar modelo")
+                    }
+                }
+
+                // Surface any load error prominently so the user knows
+                // exactly why the model is not running instead of guessing.
+                loadError?.let { err ->
+                    Spacer(modifier = Modifier.height(16.dp))
+                    androidx.compose.material3.Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = androidx.compose.material3.CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        ),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Não foi possível carregar o modelo",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = err,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Dica: modelos LFM2 (como o LFM2.5-230M) exigem " +
+                                    "llama.cpp >= b6000. O app já está configurado com " +
+                                    "uma versão compatível; se ainda assim falhar, " +
+                                    "verifique o logcat (tag LlamaJNI) para a arquitetura " +
+                                    "do GGUF.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                            )
+                        }
                     }
                 }
             }

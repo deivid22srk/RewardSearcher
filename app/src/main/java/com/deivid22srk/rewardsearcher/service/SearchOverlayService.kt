@@ -186,7 +186,21 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
                 useAI && useLocalAI -> {
                     currentTerm = "Gerando com IA local…"
                     val localAI = LocalAIManager(this@SearchOverlayService)
-                    localAI.generateSearches(count) { token -> currentTerm = token }
+                    // fallbackOnError=true so the foreground service still
+                    // has something to search for if the model fails to load
+                    // (e.g. unsupported architecture, corrupt download). The
+                    // failure reason is logged via LocalAIManager.loadError.
+                    val generated = localAI.generateSearches(count, fallbackOnError = true) { token ->
+                        currentTerm = token
+                    }
+                    if (generated.isEmpty()) {
+                        android.util.Log.w("SearchOverlayService",
+                            "Local AI generation returned empty; falling back to static pool. " +
+                            "loadError=${localAI.loadError.value}")
+                        SearchTerms.getShuffled(count)
+                    } else {
+                        generated
+                    }
                 }
                 useAI -> {
                     currentTerm = "Gerando pesquisas com IA…"
@@ -240,7 +254,17 @@ class SearchOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner 
                 useAI && useLocalAI -> {
                     currentTerm = "Gerando com IA local…"
                     val localAI = LocalAIManager(this@SearchOverlayService)
-                    localAI.generateSearches(total) { token -> currentTerm = token }
+                    val generated = localAI.generateSearches(total, fallbackOnError = true) { token ->
+                        currentTerm = token
+                    }
+                    if (generated.isEmpty()) {
+                        android.util.Log.w("SearchOverlayService",
+                            "Local AI generation returned empty; falling back to static pool. " +
+                            "loadError=${localAI.loadError.value}")
+                        SearchTerms.getShuffled(total, prefix)
+                    } else {
+                        generated
+                    }
                 }
                 useAI -> {
                     currentTerm = "Gerando pesquisas com IA…"

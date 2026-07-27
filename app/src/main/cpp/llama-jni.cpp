@@ -124,7 +124,7 @@ Java_com_deivid22srk_rewardsearcher_data_LocalAIManager_nativeGenerate(
             env->DeleteLocalRef(jpiece);
         }
 
-        llama_batch_clear(batch);
+        batch.n_tokens = 0;
         batch.token[0] = newToken;
         batch.pos[0] = nCur;
         batch.n_seq_id[0] = 1;

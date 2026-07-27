@@ -37,12 +37,19 @@ struct GgufHeader {
     uint64_t n_kv;
 };
 
-enum GgufValueType {
-    GGUF_TYPE_UINT8 = 0, GGUF_TYPE_INT8, GGUF_TYPE_UINT16, GGUF_TYPE_INT16,
-    GGUF_TYPE_UINT32, GGUF_TYPE_INT32, GGUF_TYPE_FLOAT32, GGUF_TYPE_BOOL,
-    GGUF_TYPE_STRING, GGUF_TYPE_ARRAY, GGUF_TYPE_UINT64, GGUF_TYPE_INT64,
-    GGUF_TYPE_FLOAT64,
+// Use a private namespace to avoid colliding with the gguf_type enum
+// that is now exposed transitively via llama.h → ggml.h in newer
+// llama.cpp releases (b6xxx+). The values mirror ggml's gguf_type but
+// we do not need to be wire-compatible — we only use them to walk past
+// KV entries we do not care about.
+namespace {
+enum LocalGgufValueType {
+    LOCAL_GGUF_TYPE_UINT8 = 0, LOCAL_GGUF_TYPE_INT8, LOCAL_GGUF_TYPE_UINT16, LOCAL_GGUF_TYPE_INT16,
+    LOCAL_GGUF_TYPE_UINT32, LOCAL_GGUF_TYPE_INT32, LOCAL_GGUF_TYPE_FLOAT32, LOCAL_GGUF_TYPE_BOOL,
+    LOCAL_GGUF_TYPE_STRING, LOCAL_GGUF_TYPE_ARRAY, LOCAL_GGUF_TYPE_UINT64, LOCAL_GGUF_TYPE_INT64,
+    LOCAL_GGUF_TYPE_FLOAT64,
 };
+}
 
 // Read a GGUF string (uint64 length + bytes, no null terminator) from a
 // byte buffer at the given offset. Advances offset past the string.
@@ -62,12 +69,12 @@ static std::string read_gguf_string(const std::vector<uint8_t> &buf, size_t &off
 // we do not care about. Returns false on overflow.
 static bool skip_gguf_value(const std::vector<uint8_t> &buf, size_t &off, uint32_t type) {
     switch (type) {
-        case GGUF_TYPE_UINT8:  case GGUF_TYPE_INT8:    case GGUF_TYPE_BOOL: off += 1; break;
-        case GGUF_TYPE_UINT16: case GGUF_TYPE_INT16:   off += 2; break;
-        case GGUF_TYPE_UINT32: case GGUF_TYPE_INT32:   case GGUF_TYPE_FLOAT32: off += 4; break;
-        case GGUF_TYPE_UINT64: case GGUF_TYPE_INT64:   case GGUF_TYPE_FLOAT64: off += 8; break;
-        case GGUF_TYPE_STRING: read_gguf_string(buf, off); break;
-        case GGUF_TYPE_ARRAY: {
+        case LOCAL_GGUF_TYPE_UINT8:  case LOCAL_GGUF_TYPE_INT8:    case LOCAL_GGUF_TYPE_BOOL: off += 1; break;
+        case LOCAL_GGUF_TYPE_UINT16: case LOCAL_GGUF_TYPE_INT16:   off += 2; break;
+        case LOCAL_GGUF_TYPE_UINT32: case LOCAL_GGUF_TYPE_INT32:   case LOCAL_GGUF_TYPE_FLOAT32: off += 4; break;
+        case LOCAL_GGUF_TYPE_UINT64: case LOCAL_GGUF_TYPE_INT64:   case LOCAL_GGUF_TYPE_FLOAT64: off += 8; break;
+        case LOCAL_GGUF_TYPE_STRING: read_gguf_string(buf, off); break;
+        case LOCAL_GGUF_TYPE_ARRAY: {
             if (off + 4 > buf.size()) return false;
             uint32_t elemType = 0;
             memcpy(&elemType, buf.data() + off, 4); off += 4;
@@ -109,7 +116,7 @@ static std::string inspect_gguf_architecture(const char *path) {
         if (off + 4 > buf.size()) break;
         uint32_t type = 0;
         memcpy(&type, buf.data() + off, 4); off += 4;
-        if (key == "general.architecture" && type == GGUF_TYPE_STRING) {
+        if (key == "general.architecture" && type == LOCAL_GGUF_TYPE_STRING) {
             return read_gguf_string(buf, off);
         }
         if (!skip_gguf_value(buf, off, type)) break;

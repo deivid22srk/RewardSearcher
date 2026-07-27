@@ -268,8 +268,8 @@ class LocalAIManager(private val context: Context) {
      */
     suspend fun generateSearches(
         count: Int,
-        onToken: (String) -> Unit,
-        fallbackOnError: Boolean = false
+        fallbackOnError: Boolean = false,
+        onToken: (String) -> Unit
     ): List<String> = withContext(Dispatchers.Default) {
         if (!loadModel()) {
             _loadError.value = _loadError.value ?: "Falha ao carregar modelo para geração"

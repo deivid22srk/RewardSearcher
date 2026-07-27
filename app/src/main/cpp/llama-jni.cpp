@@ -215,9 +215,20 @@ Java_com_deivid22srk_rewardsearcher_data_LocalAIManager_nativeChat(
         msgs[i].content = contentStorage[i].c_str();
     }
 
+    // Look up the model's embedded chat template (e.g. ChatML for LFM2.5).
+    // In llama.cpp b4751, llama_chat_apply_template takes the template
+    // string as its first argument (not a model pointer), so we first
+    // ask the model for its template, then pass it through. Passing
+    // nullptr for tmpl would fall back to a hardcoded default
+    // (ChatML) which is wrong for non-ChatML models.
+    const char *tmpl = llama_model_chat_template(g_model, nullptr);
+    if (!tmpl) {
+        LOGE("Model has no embedded chat template; falling back to default");
+    }
+
     // First pass: query the required buffer size for the templated prompt.
-    int needed = llama_chat_apply_template(g_model, nullptr,
-                                           msgs.data(), nMsgs, true,
+    int needed = llama_chat_apply_template(tmpl,
+                                           msgs.data(), (size_t)nMsgs, true,
                                            nullptr, 0);
     if (needed < 0) {
         LOGE("llama_chat_apply_template (sizing) failed: %d", needed);
@@ -226,9 +237,9 @@ Java_com_deivid22srk_rewardsearcher_data_LocalAIManager_nativeChat(
     }
 
     std::string templated(needed > 0 ? needed : 1, '\0');
-    int written = llama_chat_apply_template(g_model, nullptr,
-                                            msgs.data(), nMsgs, true,
-                                            &templated[0], templated.size());
+    int written = llama_chat_apply_template(tmpl,
+                                            msgs.data(), (size_t)nMsgs, true,
+                                            &templated[0], (int32_t)templated.size());
     if (written < 0) {
         LOGE("llama_chat_apply_template (write) failed: %d", written);
         env->CallVoidMethod(callback, onComplete);

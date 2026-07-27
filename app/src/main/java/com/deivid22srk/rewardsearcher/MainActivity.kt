@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 val navController = rememberNavController()
 
-                NavHost(navroller = navController, startDestination = "home") {
+                NavHost(navController = navController, startDestination = "home") {
                     composable("home") {
                         HomeScreen(
                             searchCount = searchCount,
@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
                             showAIPreviews = showAIPreviews,
                             useLocalAI = useLocalAI,
                             localAIManager = localAIManager,
-                            onNavigateToSettings = { nav.navigate("settings") }
+                            onNavigateToSettings = { navController.navigate("settings") }
                         )
                     }
                     composable("settings") {
@@ -100,7 +100,7 @@ class MainActivity : ComponentActivity() {
                             onAiKeyChange = { v -> lifecycleScope.launch { settingsRepo.setAiKey(v) } },
                             onShowAIPreviewsChange = { v -> lifecycleScope.launch { settingsRepo.setShowAIPreviews(v) } },
                             onUseLocalAIChange = { v -> lifecycleScope.launch { settingsRepo.setUseLocalAI(v) } },
-                            onNavigateBack = { navpopBackStack() }
+                            onNavigateBack = { navController.popBackStack() }
                         )
                     }
                 }

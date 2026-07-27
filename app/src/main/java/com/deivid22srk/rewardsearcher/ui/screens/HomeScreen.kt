@@ -31,6 +31,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -52,6 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.deivid22srk.rewardsearcher.data.AISearchGenerator
+import com.deivid22srk.rewardsearcher.data.LocalAIManager
 import com.deivid22srk.rewardsearcher.service.SearchOverlayService
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -68,6 +70,8 @@ fun HomeScreen(
     aiModel: String,
     aiKey: String,
     showAIPreviews: Boolean,
+    useLocalAI: Boolean,
+    localAIManager: LocalAIManager,
     onNavigateToSettings: () -> Unit
 ) {
     val context = LocalContext.current
@@ -76,41 +80,89 @@ fun HomeScreen(
 
     var count by remember { mutableFloatStateOf(searchCount.toFloat()) }
     var prefix by remember { mutableStateOf(searchPrefix) }
-    var showPreviewDialog by remember { mutableStateOf(false) }
-    var previewTerms by remember { mutableStateOf<List<String>>(emptyList()) }
-    var isLoadingPreview by remember { mutableStateOf(false) }
+    var showGenerateDialog by remember { mutableStateOf(false) }
+    var generatedTerms by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isGenerating by remember { mutableStateOf(false) }
+    var streamingText by remember { mutableStateOf("") }
 
-    if (showPreviewDialog) {
+    if (showGenerateDialog) {
         AlertDialog(
-            onDismissRequest = { showPreviewDialog = false },
-            title = { Text("Pesquisas geradas por IA") },
+            onDismissRequest = { if (!isGenerating) showGenerateDialog = false },
+            title = { Text("Gerar Pesquisas com IA") },
             text = {
-                if (isLoadingPreview) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("Gerando pesquisas...", style = MaterialTheme.typography.bodyMedium)
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.height(300.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        itemsIndexed(previewTerms) { index, term ->
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (isGenerating) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                             Text(
-                                text = "${index + 1}. $term",
-                                style = MaterialTheme.typography.bodySmall
+                                text = if (useLocalAI) "Gerando com IA local..." else "Gerando com IA...",
+                                style = MaterialTheme.typography.bodyMedium
                             )
+                        }
+                        Card(
+                            modifier = Modifier.fillMaxWidth().height(200.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
+                        ) {
+                            LazyColumn(modifier = Modifier.padding(12.dp)) {
+                                item {
+                                    Text(
+                                        text = streamingText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    } else if (generatedTerms.isNotEmpty()) {
+                        Text(
+                            text = "${generatedTerms.size} pesquisas geradas:",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        LazyColumn(
+                            modifier = Modifier.height(250.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            itemsIndexed(generatedTerms) { index, term ->
+                                Text(
+                                    text = "${index + 1}. $term",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showPreviewDialog = false }) {
-                    Text("Fechar")
+                if (isGenerating) {
+                    TextButton(onClick = {}) { Text("Aguarde...") }
+                } else {
+                    TextButton(onClick = { showGenerateDialog = false }) { Text("Fechar") }
+                }
+            },
+            dismissButton = {
+                if (!isGenerating && generatedTerms.isNotEmpty()) {
+                    TextButton(onClick = {
+                        showGenerateDialog = false
+                        val intent = Intent(context, SearchOverlayService::class.java).apply {
+                            putExtra(SearchOverlayService.EXTRA_SEARCH_COUNT, count.roundToInt())
+                            putExtra(SearchOverlayService.EXTRA_DELAY_MS, delayMs)
+                            putExtra(SearchOverlayService.EXTRA_BROWSER, browser)
+                            putExtra(SearchOverlayService.EXTRA_SEARCH_PREFIX, prefix)
+                            putExtra(SearchOverlayService.EXTRA_USE_AI, false)
+                            putExtra(SearchOverlayService.EXTRA_PREGENERATED_TERMS, generatedTerms.toTypedArray())
+                        }
+                        context.startForegroundService(intent)
+                    }) {
+                        Text("Iniciar com estas")
+                    }
                 }
             }
         )
@@ -186,7 +238,7 @@ fun HomeScreen(
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
                             Text(
-                                text = "Pesquisas geradas por IA",
+                                text = if (useLocalAI) "IA Local (GGUF)" else "IA em nuvem",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
@@ -225,14 +277,21 @@ fun HomeScreen(
             if (useAI && showAIPreviews) {
                 FilledTonalButton(
                     onClick = {
-                        showPreviewDialog = true
-                        isLoadingPreview = true
-                        previewTerms = emptyList()
+                        showGenerateDialog = true
+                        isGenerating = true
+                        generatedTerms = emptyList()
+                        streamingText = ""
                         scope.launch {
-                            previewTerms = AISearchGenerator.generate(
-                                count.roundToInt(), aiUrl, aiModel, aiKey
-                            )
-                            isLoadingPreview = false
+                            if (useLocalAI) {
+                                generatedTerms = localAIManager.generateSearches(count.roundToInt()) { token ->
+                                    streamingText += token
+                                }
+                            } else {
+                                generatedTerms = AISearchGenerator.generate(
+                                    count.roundToInt(), aiUrl, aiModel, aiKey
+                                )
+                            }
+                            isGenerating = false
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -240,7 +299,7 @@ fun HomeScreen(
                 ) {
                     Icon(Icons.Default.SmartToy, contentDescription = null)
                     Spacer(modifier = Modifier.size(8.dp))
-                    Text("Ver pesquisas geradas por IA")
+                    Text("Gerar Pesquisas com IA")
                 }
             }
 
@@ -262,6 +321,7 @@ fun HomeScreen(
                             putExtra(SearchOverlayService.EXTRA_AI_URL, aiUrl)
                             putExtra(SearchOverlayService.EXTRA_AI_MODEL, aiModel)
                             putExtra(SearchOverlayService.EXTRA_AI_KEY, aiKey)
+                            putExtra(SearchOverlayService.EXTRA_USE_LOCAL_AI, useLocalAI)
                         }
                         context.startForegroundService(intent)
                     }

@@ -7,10 +7,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.deivid22srk.rewardsearcher.data.LocalAIManager
+import com.deivid22srk.rewardsearcher.data.ModelDownloadManager
 import com.deivid22srk.rewardsearcher.data.SettingsRepository
 import com.deivid22srk.rewardsearcher.ui.screens.HomeScreen
 import com.deivid22srk.rewardsearcher.ui.screens.SettingsScreen
@@ -20,11 +23,15 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private lateinit var settingsRepo: SettingsRepository
+    private lateinit var localAIManager: LocalAIManager
+    private lateinit var downloadManager: ModelDownloadManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         settingsRepo = SettingsRepository(this)
+        localAIManager = LocalAIManager(this)
+        downloadManager = ModelDownloadManager(this)
 
         setContent {
             val dynamicColor by settingsRepo.dynamicColor.collectAsState(initial = true)
@@ -38,6 +45,7 @@ class MainActivity : ComponentActivity() {
             val aiModel by settingsRepo.aiModel.collectAsState(initial = "")
             val aiKey by settingsRepo.aiKey.collectAsState(initial = "")
             val showAIPreviews by settingsRepo.showAIPreviews.collectAsState(initial = false)
+            val useLocalAI by settingsRepo.useLocalAI.collectAsState(initial = false)
 
             val isDark = when (darkThemePref) {
                 "light" -> false
@@ -51,7 +59,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 val navController = rememberNavController()
 
-                NavHost(navController = navController, startDestination = "home") {
+                NavHost(navroller = navController, startDestination = "home") {
                     composable("home") {
                         HomeScreen(
                             searchCount = searchCount,
@@ -63,7 +71,9 @@ class MainActivity : ComponentActivity() {
                             aiModel = aiModel,
                             aiKey = aiKey,
                             showAIPreviews = showAIPreviews,
-                            onNavigateToSettings = { navController.navigate("settings") }
+                            useLocalAI = useLocalAI,
+                            localAIManager = localAIManager,
+                            onNavigateToSettings = { nav.navigate("settings") }
                         )
                     }
                     composable("settings") {
@@ -77,6 +87,9 @@ class MainActivity : ComponentActivity() {
                             aiModel = aiModel,
                             aiKey = aiKey,
                             showAIPreviews = showAIPreviews,
+                            useLocalAI = useLocalAI,
+                            localAIManager = localAIManager,
+                            downloadManager = downloadManager,
                             onDelayChange = { v -> lifecycleScope.launch { settingsRepo.setDelayMs(v) } },
                             onBrowserChange = { v -> lifecycleScope.launch { settingsRepo.setBrowser(v) } },
                             onDynamicColorChange = { v -> lifecycleScope.launch { settingsRepo.setDynamicColor(v) } },
@@ -86,11 +99,17 @@ class MainActivity : ComponentActivity() {
                             onAiModelChange = { v -> lifecycleScope.launch { settingsRepo.setAiModel(v) } },
                             onAiKeyChange = { v -> lifecycleScope.launch { settingsRepo.setAiKey(v) } },
                             onShowAIPreviewsChange = { v -> lifecycleScope.launch { settingsRepo.setShowAIPreviews(v) } },
-                            onNavigateBack = { navController.popBackStack() }
+                            onUseLocalAIChange = { v -> lifecycleScope.launch { settingsRepo.setUseLocalAI(v) } },
+                            onNavigateBack = { navpopBackStack() }
                         )
                     }
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        localAIManager.freeModel()
     }
 }

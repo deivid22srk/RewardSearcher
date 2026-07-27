@@ -104,8 +104,7 @@ fun SettingsScreen(
                             value = delay,
                             onValueChange = { delay = it },
                             onValueChangeFinished = { onDelayChange((delay * 1000).toLong()) },
-                            valueRange = 1f..15f,
-                            steps = 13
+                            valueRange = 1f..15f
                         )
                     }
 

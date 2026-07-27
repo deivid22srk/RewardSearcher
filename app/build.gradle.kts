@@ -16,13 +16,19 @@ android {
         versionName = "1.0"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            // arm64-v8a only: llama.cpp's ggml-cpu/llamafile/sgemm.cpp uses ARMv8.2-A
+            // FP16 intrinsics (vld1q_f16) that are not available on armeabi-v7a (32-bit ARMv7).
+            // minSdk 26 (Android 8.0+) guarantees 64-bit support on every shipping device.
+            abiFilters += listOf("arm64-v8a")
         }
 
         externalNativeBuild {
             cmake {
-                cppFlags += "-std=c++17"
-                arguments += listOf("-DANDROID_STL=c++_shared")
+                cppFlags += listOf("-std=c++17", "-fexceptions")
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_PLATFORM=android-26"
+                )
             }
         }
     }

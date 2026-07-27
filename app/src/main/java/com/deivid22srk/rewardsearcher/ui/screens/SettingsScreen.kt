@@ -1,5 +1,6 @@
 package com.deivid22srk.rewardsearcher.ui.screens
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.OpenInBrowser
@@ -78,6 +80,9 @@ fun SettingsScreen(
     dualBrowser: Boolean,
     bingCount: Int,
     chromeCount: Int,
+    // Feature (TXT): custom search-queries file
+    searchTxtUri: String,
+    searchTxtName: String,
     localAIManager: LocalAIManager,
     downloadManager: ModelDownloadManager,
     onDelayChange: (Long) -> Unit,
@@ -94,6 +99,8 @@ fun SettingsScreen(
     onDualBrowserChange: (Boolean) -> Unit,
     onBingCountChange: (Int) -> Unit,
     onChromeCountChange: (Int) -> Unit,
+    onSearchTxtSelected: (uri: String, name: String) -> Unit,
+    onSearchTxtCleared: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -132,6 +139,37 @@ fun SettingsScreen(
                 importResult = if (success) "Modelo importado com sucesso!" else "Erro ao importar modelo"
             } catch (_: Exception) {
                 importResult = "Erro ao importar arquivo"
+            }
+        }
+    }
+
+    // TXT file picker for custom search queries. Uses OpenDocument (not
+    // GetContent) so we can take a PERSISTABLE read permission — this lets
+    // us re-open the file after the app process is killed without asking
+    // the user again. The permission grant is taken inside the callback.
+    val txtPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                // Take a persistable read grant so we can re-open this URI
+                // across process restarts. The flag must match what we
+                // declare in the launcher (FLAG_GRANT_READ_URI_PERMISSION).
+                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                try {
+                    context.contentResolver.takePersistableUriPermission(uri, flags)
+                } catch (_: SecurityException) {
+                    // Some providers do not support persistable grants; we
+                    // can still use the URI for the lifetime of this
+                    // process, just not after a restart.
+                }
+                // Derive a friendly display name from the URI's last path
+                // segment (works for most SAF providers including the
+                // system Documents UI).
+                val name = uri.lastPathSegment ?: "arquivo.txt"
+                onSearchTxtSelected(uri.toString(), name)
+            } catch (_: Exception) {
+                // Silently ignore — the user can retry.
             }
         }
     }
@@ -313,6 +351,20 @@ fun SettingsScreen(
                 }
             }
 
+            // ─────────────────────────────────────────────────────────────
+            // AI search-generation card — TEMPORARILY DISABLED.
+            //
+            // The local-AI and cloud-AI search generation features are
+            // turned off in the UI for now (see the project worklog for
+            // the rationale). We keep the entire Card rendered-but-hidden
+            // so that:
+            //   * the underlying code paths stay intact and can be
+            //     re-enabled by flipping a single flag;
+            //   * we do not have to remove the matching parameters from
+            //     the SettingsScreen signature (which would cascade
+            //     changes through MainActivity).
+            // ─────────────────────────────────────────────────────────────
+            AnimatedVisibility(visible = false) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -566,6 +618,106 @@ fun SettingsScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+            } // end AnimatedVisibility(visible = false) — AI card disabled
+
+            // ─────────────────────────────────────────────────────────────
+            // TXT search-queries file card.
+            //
+            // Lets the user pick a .txt file containing one search query
+            // per line. The URI + display name are persisted in
+            // SettingsRepository so the HomeScreen can re-read the file
+            // (and re-open it across process restarts thanks to the
+            // persistable URI permission taken at selection time).
+            // ─────────────────────────────────────────────────────────────
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                shape = MaterialTheme.shapes.extraLarge
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Arquivo de pesquisas (.txt)",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Text(
+                        text = "Selecione um arquivo de texto com as pesquisas que você " +
+                            "quer usar. Cada linha vira uma pesquisa. Linhas em branco " +
+                            "e linhas começando com # são ignoradas. Na tela inicial, " +
+                            "o botão \"Sortear N pesquisas do TXT\" vai embaralhar o " +
+                            "arquivo e usar as pesquisas sorteadas.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (searchTxtUri.isNotBlank()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Article,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "Arquivo selecionado:",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                Text(
+                                    text = searchTxtName.ifBlank { searchTxtUri },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilledTonalButton(
+                            onClick = {
+                                txtPickerLauncher.launch(arrayOf("text/plain", "application/octet-stream", "*/*"))
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(if (searchTxtUri.isNotBlank()) "Trocar arquivo" else "Selecionar arquivo")
+                        }
+
+                        if (searchTxtUri.isNotBlank()) {
+                            FilledTonalButton(
+                                onClick = onSearchTxtCleared
+                            ) {
+                                Text("Remover")
                             }
                         }
                     }

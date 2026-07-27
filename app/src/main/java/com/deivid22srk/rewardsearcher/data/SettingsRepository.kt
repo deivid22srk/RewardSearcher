@@ -37,6 +37,15 @@ class SettingsRepository(private val context: Context) {
         val KEY_DUAL_BROWSER = booleanPreferencesKey("dual_browser")
         val KEY_BING_COUNT = intPreferencesKey("bing_count")
         val KEY_CHROME_COUNT = intPreferencesKey("chrome_count")
+
+        // TXT file with custom search queries (one per line). Stored as a
+        // content:// URI string so we can re-read it via the Storage Access
+        // Framework. Empty string = no file selected.
+        val KEY_SEARCH_TXT_URI = stringPreferencesKey("search_txt_uri")
+        // Persisted read permission grant URI string (so we can re-open the
+        // file after process death without re-asking the user). See
+        // ContentResolver.takePersistableUriPermission.
+        val KEY_SEARCH_TXT_NAME = stringPreferencesKey("search_txt_name")
     }
 
     val searchCount: Flow<Int> = context.dataStore.data.map { it[KEY_SEARCH_COUNT] ?: 30 }
@@ -60,6 +69,9 @@ class SettingsRepository(private val context: Context) {
     val dualBrowser: Flow<Boolean> = context.dataStore.data.map { it[KEY_DUAL_BROWSER] ?: false }
     val bingCount: Flow<Int> = context.dataStore.data.map { it[KEY_BING_COUNT] ?: 20 }
     val chromeCount: Flow<Int> = context.dataStore.data.map { it[KEY_CHROME_COUNT] ?: 30 }
+
+    val searchTxtUri: Flow<String> = context.dataStore.data.map { it[KEY_SEARCH_TXT_URI] ?: "" }
+    val searchTxtName: Flow<String> = context.dataStore.data.map { it[KEY_SEARCH_TXT_NAME] ?: "" }
 
     suspend fun setSearchCount(value: Int) {
         context.dataStore.edit { it[KEY_SEARCH_COUNT] = value }
@@ -123,5 +135,12 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setChromeCount(value: Int) {
         context.dataStore.edit { it[KEY_CHROME_COUNT] = value }
+    }
+
+    suspend fun setSearchTxtUri(uri: String, name: String) {
+        context.dataStore.edit {
+            it[KEY_SEARCH_TXT_URI] = uri
+            it[KEY_SEARCH_TXT_NAME] = name
+        }
     }
 }

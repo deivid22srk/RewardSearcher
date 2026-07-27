@@ -33,11 +33,11 @@ class MainActivity : ComponentActivity() {
         localAIManager = LocalAIManager(this)
         downloadManager = ModelDownloadManager(this)
 
-        // Kick off model preloading as soon as the app starts. This runs
-        // off the main thread (loadModelAsync uses Dispatchers.Default) so
-        // the UI is not blocked. By the time the user navigates to the
-        // ChatScreen or hits "Gerar Pesquisas com IA", the model is
-        // usually already loaded. No-op if the model file does not exist.
+        // Model preloading is kept running because the ChatScreen is still
+        // reachable via the "chat" navigation route (even though the Home
+        // screen no longer surfaces a chat button). If the user navigates
+        // there directly, the model should already be ready. No-op if the
+        // model file does not exist.
         lifecycleScope.launch {
             localAIManager.preloadIfAvailable()
         }
@@ -62,6 +62,10 @@ class MainActivity : ComponentActivity() {
             val dualBrowser by settingsRepo.dualBrowser.collectAsState(initial = false)
             val bingCount by settingsRepo.bingCount.collectAsState(initial = 20)
             val chromeCount by settingsRepo.chromeCount.collectAsState(initial = 30)
+
+            // Feature (TXT): custom search-queries file URI + display name.
+            val searchTxtUri by settingsRepo.searchTxtUri.collectAsState(initial = "")
+            val searchTxtName by settingsRepo.searchTxtName.collectAsState(initial = "")
 
             val isDark = when (darkThemePref) {
                 "light" -> false
@@ -92,10 +96,10 @@ class MainActivity : ComponentActivity() {
                             dualBrowser = dualBrowser,
                             bingCount = bingCount,
                             chromeCount = chromeCount,
-                            localAIManager = localAIManager,
+                            searchTxtUri = searchTxtUri,
+                            searchTxtName = searchTxtName,
                             onDualBrowserChange = { v -> lifecycleScope.launch { settingsRepo.setDualBrowser(v) } },
-                            onNavigateToSettings = { navController.navigate("settings") },
-                            onNavigateToChat = { navController.navigate("chat") }
+                            onNavigateToSettings = { navController.navigate("settings") }
                         )
                     }
                     composable("settings") {
@@ -114,6 +118,8 @@ class MainActivity : ComponentActivity() {
                             dualBrowser = dualBrowser,
                             bingCount = bingCount,
                             chromeCount = chromeCount,
+                            searchTxtUri = searchTxtUri,
+                            searchTxtName = searchTxtName,
                             localAIManager = localAIManager,
                             downloadManager = downloadManager,
                             onDelayChange = { v -> lifecycleScope.launch { settingsRepo.setDelayMs(v) } },
@@ -130,9 +136,18 @@ class MainActivity : ComponentActivity() {
                             onDualBrowserChange = { v -> lifecycleScope.launch { settingsRepo.setDualBrowser(v) } },
                             onBingCountChange = { v -> lifecycleScope.launch { settingsRepo.setBingCount(v) } },
                             onChromeCountChange = { v -> lifecycleScope.launch { settingsRepo.setChromeCount(v) } },
+                            onSearchTxtSelected = { uri, name ->
+                                lifecycleScope.launch { settingsRepo.setSearchTxtUri(uri, name) }
+                            },
+                            onSearchTxtCleared = {
+                                lifecycleScope.launch { settingsRepo.setSearchTxtUri("", "") }
+                            },
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }
+                    // Chat route kept for completeness — reachable only via
+                    // deep navigation, not from the Home screen UI while the
+                    // AI features are disabled.
                     composable("chat") {
                         ChatScreen(
                             localAIManager = localAIManager,

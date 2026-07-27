@@ -13,15 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -33,7 +30,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -43,7 +39,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -56,8 +51,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.deivid22srk.rewardsearcher.data.AISearchGenerator
-import com.deivid22srk.rewardsearcher.data.LocalAIManager
+import com.deivid22srk.rewardsearcher.data.TxtSearchTerms
 import com.deivid22srk.rewardsearcher.service.SearchOverlayService
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -69,105 +63,91 @@ fun HomeScreen(
     delayMs: Long,
     browser: String,
     searchPrefix: String,
-    useAI: Boolean,
-    aiUrl: String,
-    aiModel: String,
-    aiKey: String,
-    showAIPreviews: Boolean,
-    useLocalAI: Boolean,
+    // AI parameters are kept in the signature so the surrounding state
+    // pipeline does not change, but they are no longer surfaced in the UI
+    // (the AI search-generation feature is temporarily disabled).
+    @Suppress("UNUSED_PARAMETER") useAI: Boolean,
+    @Suppress("UNUSED_PARAMETER") aiUrl: String,
+    @Suppress("UNUSED_PARAMETER") aiModel: String,
+    @Suppress("UNUSED_PARAMETER") aiKey: String,
+    @Suppress("UNUSED_PARAMETER") showAIPreviews: Boolean,
+    @Suppress("UNUSED_PARAMETER") useLocalAI: Boolean,
     // Feature 1
     chromeUrlParams: String,
     // Feature 2
     dualBrowser: Boolean,
     bingCount: Int,
     chromeCount: Int,
-    localAIManager: LocalAIManager,
+    // Feature (TXT): the URI of the user-selected .txt file with custom
+    // search queries, plus its display name for the button label.
+    searchTxtUri: String,
+    searchTxtName: String,
     onDualBrowserChange: (Boolean) -> Unit,
-    onNavigateToSettings: () -> Unit,
-    onNavigateToChat: () -> Unit
+    onNavigateToSettings: () -> Unit
 ) {
     val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
 
-    // Real loading progress from the LocalAIManager (Feature 3).
-    val isModelLoaded by localAIManager.isLoaded.collectAsState()
-    val isModelLoading by localAIManager.isLoading.collectAsState()
-    val modelLoadProgress by localAIManager.loadProgress.collectAsState()
-    val modelLoadStage by localAIManager.loadStage.collectAsState()
-
     var count by remember { mutableFloatStateOf(searchCount.toFloat()) }
     var bingCountState by remember(bingCount) { mutableFloatStateOf(bingCount.toFloat()) }
     var chromeCountState by remember(chromeCount) { mutableFloatStateOf(chromeCount.toFloat()) }
     var prefix by remember(searchPrefix) { mutableStateOf(searchPrefix) }
-    var showGenerateDialog by remember { mutableStateOf(false) }
-    var generatedTerms by remember { mutableStateOf<List<String>>(emptyList()) }
-    var isGenerating by remember { mutableStateOf(false) }
-    var streamingText by remember { mutableStateOf("") }
 
-    if (showGenerateDialog) {
+    // State for the "use TXT" loading flow.
+    var isTxtLoading by remember { mutableStateOf(false) }
+    var txtError by remember { mutableStateOf<String?>(null) }
+    var showTxtResultDialog by remember { mutableStateOf(false) }
+    var txtLoadedTerms by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    if (showTxtResultDialog) {
         AlertDialog(
-            onDismissRequest = { if (!isGenerating) showGenerateDialog = false },
-            title = { Text("Gerar Pesquisas com IA") },
+            onDismissRequest = { if (!isTxtLoading) showTxtResultDialog = false },
+            title = { Text("Pesquisas do arquivo TXT") },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Feature 3: real progress while the model is being loaded
-                    // for generation. Replaces the previous "freezes for a few
-                    // seconds" behaviour where the UI appeared hung.
-                    if (useLocalAI && isModelLoading && !isModelLoaded) {
-                        LinearProgressIndicator(
-                            progress = { modelLoadProgress.coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Text(
-                            text = "${(modelLoadProgress * 100).roundToInt()}% — ${modelLoadStage.ifBlank { "Carregando…" }}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (isGenerating) {
+                    if (isTxtLoading) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
                             Text(
-                                text = if (useLocalAI) "Gerando com IA local…" else "Gerando com IA…",
+                                text = "Lendo arquivo e sorteando pesquisas…",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
-                        Card(
-                            modifier = Modifier.fillMaxWidth().height(200.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                    } else {
+                        txtError?.let { err ->
+                            Text(
+                                text = err,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error
                             )
-                        ) {
-                            LazyColumn(modifier = Modifier.padding(12.dp)) {
-                                item {
-                                    Text(
-                                        text = streamingText,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
                         }
-                    } else if (generatedTerms.isNotEmpty()) {
-                        Text(
-                            text = "${generatedTerms.size} pesquisas geradas:",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        LazyColumn(
-                            modifier = Modifier.height(250.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            itemsIndexed(generatedTerms) { index, term ->
+                        if (txtLoadedTerms.isNotEmpty()) {
+                            Text(
+                                text = "${txtLoadedTerms.size} pesquisas sorteadas:",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            // Show up to 12 items so the dialog stays scrollable.
+                            txtLoadedTerms.take(12).forEachIndexed { i, term ->
                                 Text(
-                                    text = "${index + 1}. $term",
+                                    text = "${i + 1}. $term",
                                     style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            if (txtLoadedTerms.size > 12) {
+                                Text(
+                                    text = "… e mais ${txtLoadedTerms.size - 12}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -175,36 +155,29 @@ fun HomeScreen(
                 }
             },
             confirmButton = {
-                if (isGenerating) {
+                if (isTxtLoading) {
                     TextButton(onClick = {}) { Text("Aguarde…") }
-                } else {
-                    TextButton(onClick = { showGenerateDialog = false }) { Text("Fechar") }
-                }
-            },
-            dismissButton = {
-                if (!isGenerating && generatedTerms.isNotEmpty()) {
+                } else if (txtLoadedTerms.isNotEmpty()) {
                     TextButton(onClick = {
-                        showGenerateDialog = false
+                        showTxtResultDialog = false
                         startService(
                             context = context,
-                            count = count.roundToInt(),
                             delayMs = delayMs,
                             browser = browser,
-                            prefix = prefix,
-                            useAI = false,
-                            aiUrl = aiUrl,
-                            aiModel = aiModel,
-                            aiKey = aiKey,
-                            useLocalAI = useLocalAI,
-                            pregeneratedTerms = generatedTerms,
                             chromeUrlParams = chromeUrlParams,
                             dualBrowser = dualBrowser,
                             bingCount = bingCountState.roundToInt(),
-                            chromeCount = chromeCountState.roundToInt()
+                            chromeCount = chromeCountState.roundToInt(),
+                            pregeneratedTerms = txtLoadedTerms
                         )
-                    }) {
-                        Text("Iniciar com estas")
-                    }
+                    }) { Text("Iniciar com estas") }
+                } else {
+                    TextButton(onClick = { showTxtResultDialog = false }) { Text("Fechar") }
+                }
+            },
+            dismissButton = {
+                if (!isTxtLoading && txtLoadedTerms.isNotEmpty()) {
+                    TextButton(onClick = { showTxtResultDialog = false }) { Text("Fechar") }
                 }
             }
         )
@@ -221,10 +194,8 @@ fun HomeScreen(
                     )
                 },
                 actions = {
-                    // Feature 4: chat button — opens the ChatScreen.
-                    IconButton(onClick = onNavigateToChat) {
-                        Icon(Icons.Default.Chat, contentDescription = "Chat com IA local")
-                    }
+                    // NOTE: the chat icon was removed from the top bar
+                    // because the AI features are temporarily disabled.
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Configurações")
                     }
@@ -280,24 +251,6 @@ fun HomeScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                     )
-                    if (useAI) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SmartToy,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
-                            Text(
-                                text = if (useLocalAI) "IA Local (GGUF)" else "IA em nuvem",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
                 }
             }
 
@@ -400,65 +353,68 @@ fun HomeScreen(
                 shape = MaterialTheme.shapes.large
             )
 
-            if (useAI && showAIPreviews) {
-                FilledTonalButton(
-                    onClick = {
-                        showGenerateDialog = true
-                        isGenerating = true
-                        generatedTerms = emptyList()
-                        streamingText = ""
-                        scope.launch {
-                            val total = if (dualBrowser) {
-                                bingCountState.roundToInt() + chromeCountState.roundToInt()
-                            } else {
-                                count.roundToInt()
-                            }
-                            if (useLocalAI) {
-                                // Use fallbackOnError=false so the user is
-                                // told the model did not load instead of
-                                // being silently handed static terms.
-                                generatedTerms = localAIManager.generateSearches(
-                                    total,
-                                    fallbackOnError = false
-                                ) { token ->
-                                    streamingText += token
-                                }
-                                if (generatedTerms.isEmpty()) {
-                                    // Surface the load error in the dialog
-                                    // so the user knows why nothing was
-                                    // generated.
-                                    streamingText = "Erro ao gerar com IA local:\n" +
-                                        (localAIManager.loadError.value ?: "motivo desconhecido")
-                                }
-                            } else {
-                                generatedTerms = AISearchGenerator.generate(
-                                    total, aiUrl, aiModel, aiKey
-                                )
-                            }
-                            isGenerating = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large
-                ) {
-                    Icon(Icons.Default.SmartToy, contentDescription = null)
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text("Gerar Pesquisas com IA")
-                }
+            // New: "Use searches from TXT file" button.
+            // Reads the user-selected .txt file (one query per line), shuffles
+            // it, picks `count` (or bingCount+chromeCount in dual mode)
+            // entries, shows a preview dialog, and lets the user start the
+            // search service with those exact pregenerated terms.
+            //
+            // Disabled (with a hint message) when no TXT file has been
+            // selected yet — the user must pick one in Settings first.
+            val txtSelected = searchTxtUri.isNotBlank()
+            val totalRequested = if (dualBrowser) {
+                bingCountState.roundToInt() + chromeCountState.roundToInt()
+            } else {
+                count.roundToInt()
             }
 
-            // Feature 4: quick chat button — alternative entry point to the
-            // ChatScreen (in addition to the top-bar icon).
-            if (useLocalAI) {
-                FilledTonalButton(
-                    onClick = onNavigateToChat,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large
-                ) {
-                    Icon(Icons.Default.Chat, contentDescription = null)
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text("Conversar com o modelo local")
-                }
+            FilledTonalButton(
+                onClick = {
+                    if (!txtSelected) return@FilledTonalButton
+                    val uri = Uri.parse(searchTxtUri)
+                    isTxtLoading = true
+                    txtError = null
+                    txtLoadedTerms = emptyList()
+                    showTxtResultDialog = true
+                    scope.launch {
+                        val terms = TxtSearchTerms.readRandom(context, uri, totalRequested)
+                        isTxtLoading = false
+                        if (terms.isEmpty()) {
+                            txtError = "Não foi possível ler o arquivo. Verifique se ele " +
+                                "ainda existe e contém linhas não vazias."
+                        } else {
+                            txtLoadedTerms = terms
+                        }
+                    }
+                },
+                enabled = txtSelected,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Icon(Icons.Default.Article, contentDescription = null)
+                Spacer(modifier = Modifier.size(8.dp))
+                Text(
+                    text = if (txtSelected) {
+                        "Sortear $totalRequested pesquisas do TXT"
+                    } else {
+                        "Selecione um arquivo TXT nas Configurações"
+                    }
+                )
+            }
+            if (txtSelected) {
+                Text(
+                    text = "Arquivo: $searchTxtName",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    text = "Nenhum arquivo TXT selecionado. Toque em Configurações " +
+                        "(ícone de engrenagem no topo) para escolher um arquivo com " +
+                        "suas pesquisas personalizadas — uma por linha.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             Button(
@@ -472,20 +428,13 @@ fun HomeScreen(
                     } else {
                         startService(
                             context = context,
-                            count = count.roundToInt(),
                             delayMs = delayMs,
                             browser = browser,
-                            prefix = prefix,
-                            useAI = useAI,
-                            aiUrl = aiUrl,
-                            aiModel = aiModel,
-                            aiKey = aiKey,
-                            useLocalAI = useLocalAI,
-                            pregeneratedTerms = null,
                             chromeUrlParams = chromeUrlParams,
                             dualBrowser = dualBrowser,
                             bingCount = bingCountState.roundToInt(),
-                            chromeCount = chromeCountState.roundToInt()
+                            chromeCount = chromeCountState.roundToInt(),
+                            pregeneratedTerms = null
                         )
                     }
                 },
@@ -512,41 +461,46 @@ fun HomeScreen(
 
 /**
  * Centralized helper that builds the foreground-service Intent with all the
- * extras the SearchOverlayService needs. Keeps the call sites (the "Iniciar
- * Pesquisas" button and the "Iniciar com estas" dialog button) in sync.
+ * extras the SearchOverlayService needs.
+ *
+ * The AI-related extras (useAI, aiUrl, aiModel, aiKey, useLocalAI) are no
+ * longer passed because the AI search-generation UI is temporarily
+ * disabled. The service still accepts them (with safe defaults) for
+ * backwards compatibility, but the only path that actually produces terms
+ * now is `pregeneratedTerms`.
  */
 private fun startService(
     context: android.content.Context,
-    count: Int,
     delayMs: Long,
     browser: String,
-    prefix: String,
-    useAI: Boolean,
-    aiUrl: String,
-    aiModel: String,
-    aiKey: String,
-    useLocalAI: Boolean,
-    pregeneratedTerms: List<String>?,
     chromeUrlParams: String,
     dualBrowser: Boolean,
     bingCount: Int,
-    chromeCount: Int
+    chromeCount: Int,
+    pregeneratedTerms: List<String>?
 ) {
     val intent = Intent(context, SearchOverlayService::class.java).apply {
-        putExtra(SearchOverlayService.EXTRA_SEARCH_COUNT, count)
+        // Single-browser count is derived from the dual counts when dual
+        // mode is on, so the service has a sensible value either way.
+        val singleCount = if (dualBrowser) (bingCount + chromeCount) else bingCount.coerceAtLeast(1)
+        putExtra(SearchOverlayService.EXTRA_SEARCH_COUNT, singleCount)
         putExtra(SearchOverlayService.EXTRA_DELAY_MS, delayMs)
         putExtra(SearchOverlayService.EXTRA_BROWSER, browser)
-        putExtra(SearchOverlayService.EXTRA_SEARCH_PREFIX, prefix)
-        putExtra(SearchOverlayService.EXTRA_USE_AI, useAI)
-        putExtra(SearchOverlayService.EXTRA_AI_URL, aiUrl)
-        putExtra(SearchOverlayService.EXTRA_AI_MODEL, aiModel)
-        putExtra(SearchOverlayService.EXTRA_AI_KEY, aiKey)
-        putExtra(SearchOverlayService.EXTRA_USE_LOCAL_AI, useLocalAI)
+        putExtra(SearchOverlayService.EXTRA_SEARCH_PREFIX, "")
+        // AI disabled: force useAI=false so the service never tries to
+        // call the (potentially not-loaded) local model or the cloud API.
+        putExtra(SearchOverlayService.EXTRA_USE_AI, false)
+        putExtra(SearchOverlayService.EXTRA_AI_URL, "")
+        putExtra(SearchOverlayService.EXTRA_AI_MODEL, "")
+        putExtra(SearchOverlayService.EXTRA_AI_KEY, "")
+        putExtra(SearchOverlayService.EXTRA_USE_LOCAL_AI, false)
         putExtra(SearchOverlayService.EXTRA_CHROME_URL_PARAMS, chromeUrlParams)
         putExtra(SearchOverlayService.EXTRA_DUAL_BROWSER, dualBrowser)
         putExtra(SearchOverlayService.EXTRA_BING_COUNT, bingCount)
         putExtra(SearchOverlayService.EXTRA_CHROME_COUNT, chromeCount)
-        pregeneratedTerms?.let { putExtra(SearchOverlayService.EXTRA_PREGENERATED_TERMS, it.toTypedArray()) }
+        pregeneratedTerms?.let {
+            putExtra(SearchOverlayService.EXTRA_PREGENERATED_TERMS, it.toTypedArray())
+        }
     }
     context.startForegroundService(intent)
 }
